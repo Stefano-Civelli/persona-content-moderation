@@ -1,0 +1,120 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Distribution / packaging
+MANIFEST
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+
+# IPython
+profile_default/
+ipython_config.py
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+.idea_modules/
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Project specific
+# Model checkpoints and weights
+checkpoints/
+*.pth
+*.pt
+*.ckpt
+*.bin
+*.safetensors
+
+# Data files
+*.csv
+*.parquet
+*.json
+*.jsonl
+
+# Logs
+logs/
+*.log
+wandb/
+runs/
+
+# Cache
+.cache/
+.pytorch_cache/
+.transformers_cache/
+
+# AWS
+.aws/
+*.aws.json
+
+# SageMaker
+.sagemaker/
+*.ipynb.json
+
+# Local development
+local_settings.py
+*.local
+.DS_Store 
+
+# data folder
+data/
+
+# pqt files
+*.pqt
+
+# pkl files
+*.pkl
+
+*.png
+*.pdf
+*.html
+*.zip
+*.pickle
