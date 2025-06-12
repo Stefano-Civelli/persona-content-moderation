@@ -4,6 +4,7 @@ from typing import Dict, Any, List
 import logging
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+# PROBABLY DEPRECATED
 
 # This is the utility function from Qwen's codebase that we'll implement directly
 def process_vision_info(messages):

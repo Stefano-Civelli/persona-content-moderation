@@ -13,11 +13,11 @@ class VLLMModel(BaseModel):
 
     def setup_model(self) -> None:
         """Initialize VLLM with guided decoding."""
-        set_random_seed(self.config.additional_params.get("seed", 22))
+        set_random_seed(self.additional_params.get("seed", 22))
 
         # Initialize VLLM
         self.llm = LLM(
-            model=self.config.model_id,
+            model=self.model_id,
             trust_remote_code=True,
             dtype="bfloat16" if torch.cuda.is_available() else "float32",
             gpu_memory_utilization=0.95,
@@ -26,7 +26,7 @@ class VLLMModel(BaseModel):
             enable_prefix_caching=True,
         )
 
-        self.tokenizer = AutoTokenizer.from_pretrained(self.config.model_id)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_id)
 
         # Set up guided decoding for structured output
         self.json_schema = ContentClassification.model_json_schema()
@@ -34,9 +34,9 @@ class VLLMModel(BaseModel):
 
         # Sampling parameters
         self.sampling_params = SamplingParams(
-            temperature=self.config.additional_params.get("temperature", 0.0),
-            top_p=self.config.additional_params.get("top_p", 1.0),
-            max_tokens=self.config.additional_params.get("max_tokens", 2048),
+            temperature=self.additional_params.get("temperature", 0.0),
+            top_p=self.additional_params.get("top_p", 1.0),
+            max_tokens=self.additional_params.get("max_tokens", 2048),
             guided_decoding=self.guided_decoding_params,
         )
 

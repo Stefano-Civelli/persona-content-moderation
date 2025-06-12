@@ -86,12 +86,12 @@ class HateSpeechTextDataset(BaseDataset):
     
     def load_dataset(self) -> None:
         """Load text dataset from CSV."""
-        df = pd.read_csv(self.config.data_path)
+        df = pd.read_csv(self.data_path)
         
         # Apply sampling if needed
-        if self.config.max_samples:
-            random.seed(self.config.seed)
-            df = df.sample(n=min(self.config.max_samples, len(df)), random_state=self.config.seed)
+        if self.max_samples:
+            random.seed(self.seed)
+            df = df.sample(n=min(self.max_samples, len(df)), random_state=self.seed)
         
         for idx, row in df.iterrows():
             item_data = {

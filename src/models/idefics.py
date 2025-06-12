@@ -10,24 +10,24 @@ class Idefics3Model(BaseModel):
         """Initialize Idefics3 model and processor."""
         from transformers import AutoProcessor, AutoModelForVision2Seq
 
-        resolution_factor = self.config.additional_params.get("resolution_factor", 4)
+        resolution_factor = self.additional_params.get("resolution_factor", 4)
 
         self.processor = AutoProcessor.from_pretrained(
-            self.config.model_id,
+            self.model_id,
             size={"longest_edge": resolution_factor * 364},
         )
 
         self.model = AutoModelForVision2Seq.from_pretrained(
-            self.config.model_id,
-            torch_dtype=self.config.dtype,
+            self.model_id,
+            torch_dtype=self.dtype,
             device_map="auto",
         )
 
     def process_batch(self, batch: Dict[str, torch.Tensor]) -> List[str]:
         """Process a batch of inputs."""
-        batch_inputs = {k: v.to(self.config.device) for k, v in batch.items()}
+        batch_inputs = {k: v.to(self.device) for k, v in batch.items()}
 
-        max_new_tokens = self.config.additional_params.get("max_new_tokens", 50)
+        max_new_tokens = self.additional_params.get("max_new_tokens", 50)
 
         with torch.no_grad():
             generated_ids = self.model.generate(

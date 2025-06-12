@@ -1,23 +1,22 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any, List
 
 import torch
-
-@dataclass
-class ModelConfig:
-    """Configuration for model initialization."""
-
-    model_id: str
-    device: str = "cuda" if torch.cuda.is_available() else "cpu"
-    dtype: torch.dtype = torch.bfloat16
-    additional_params: Dict[str, Any] = field(default_factory=dict)
 
 class BaseModel(ABC):
     """Abstract base class for all models."""
 
-    def __init__(self, config: ModelConfig):
-        self.config = config
+    def __init__(
+        self,
+        model_id: str,
+        device: str = "cuda" if torch.cuda.is_available() else "cpu",
+        dtype: torch.dtype = torch.bfloat16,
+        **additional_params: Any
+    ):
+        self.model_id = model_id
+        self.device = device
+        self.dtype = dtype
+        self.additional_params = additional_params
         self.setup_model()
 
     @abstractmethod

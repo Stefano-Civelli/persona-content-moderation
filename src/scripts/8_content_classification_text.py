@@ -1,32 +1,28 @@
 import json
 import logging
 import argparse
-from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Dict, Any, List, Tuple, Optional, Protocol
+from typing import Dict, Any, List, Tuple, Optional
 from pathlib import Path
 
-import torch
-import numpy as np
 import pandas as pd
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 from sklearn.metrics import classification_report
-from PIL import Image
 
-from src.models.base import BaseModel, ModelConfig
+from src.models.base import ModelConfig
 from src.datasets.base import (
     BaseDataset,
     PredictionParser,
     LabelConverter,
     DatasetConfig,
 )
-from src.datasets.facebook_hateful_memes_dataset import FacebookHatefulMemesDataset
-from src.datasets.facebook_hateful_memes_parser import (
-    HatefulMemesPredictionParser,
-    HatefulMemesLabelConverter,
+from src.datasets.hate_speech_text_dataset import HateSpeechTextDataset, text_collate_fn
+from src.datasets.hate_speech_text_parser import (
+    HateSpeechJsonParser,
+    HateSpeechLabelConverter,
 )
-from src.models.idefics import Idefics3Model
+from src.models.vllm_model import VLLMModel
 from utils.util import get_gpu_memory_info
 
 
@@ -87,20 +83,20 @@ class ClassificationEvaluator:
         return str(value).lower()
 
 
-# ==================== Main Pipeline ====================
+# ==================== Text Pipeline ====================
 
 
-class ClassificationPipeline:
-    """Main pipeline for running classification experiments."""
+class TextClassificationPipeline:
+    """Pipeline for running text classification experiments."""
 
     def __init__(
         self,
         dataset: BaseDataset,
-        model: BaseModel,
+        model: VLLMModel,
         parser: PredictionParser,
         converter: LabelConverter,
         evaluator: ClassificationEvaluator,
-        batch_size: int = 2,
+        batch_size: int = 32,
         num_workers: int = 4,
     ):
         self.dataset = dataset
@@ -111,18 +107,6 @@ class ClassificationPipeline:
         self.batch_size = batch_size
         self.num_workers = num_workers
 
-    def custom_collate_fn(self, batch):
-        """Custom collate function for DataLoader."""
-        inputs_list, labels_list, ids_list, metadata_list = zip(*batch)
-
-        # Stack inputs
-        stacked_inputs = {}
-        for key in inputs_list[0].keys():
-            stacked_inputs[key] = torch.stack([inp[key] for inp in inputs_list])
-
-        # For now, return first label set (assuming single-sample batches for multi-label)
-        return stacked_inputs, labels_list[0], ids_list, metadata_list
-
     def run(self) -> Tuple[List[ClassificationResult], Dict[str, Dict[str, float]]]:
         """Run the classification pipeline."""
         dataloader = DataLoader(
@@ -130,8 +114,7 @@ class ClassificationPipeline:
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
-            pin_memory=torch.cuda.is_available(),
-            collate_fn=self.custom_collate_fn,
+            collate_fn=text_collate_fn,
         )
 
         results = []
@@ -140,15 +123,22 @@ class ClassificationPipeline:
             f"Processing {len(self.dataset)} items in batches of {self.batch_size}..."
         )
 
-        for batch_inputs, batch_labels, item_ids, metadata_list in tqdm(dataloader):
-            predictions = self.model.process_batch(batch_inputs)
+        for batch_data in tqdm(dataloader):
+            inputs_list, labels_list, ids_list, metadata_list = batch_data
+            
+            # Extract prompts from inputs
+            prompts = [inp["prompt"] for inp in inputs_list]
+            
+            # Process batch through VLLM
+            predictions = self.model.process_batch(prompts)
 
+            # Process each prediction
             for idx, pred in enumerate(predictions):
-                true_labels = self.converter.convert(batch_labels)
+                true_labels = self.converter.convert(labels_list[idx])
                 predicted_labels = self.parser.parse(pred)
 
                 result = ClassificationResult(
-                    item_id=item_ids[idx],
+                    item_id=ids_list[idx],
                     true_labels=true_labels,
                     raw_prediction=pred,
                     predicted_labels=predicted_labels,
@@ -181,21 +171,21 @@ class ClassificationPipeline:
 
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description="Multi-label Classification Framework")
+    parser = argparse.ArgumentParser(description="Text-based Classification Framework")
 
     # Dataset arguments
     parser.add_argument(
         "--dataset_type",
         type=str,
-        default="facebook_hateful_memes",
-        choices=["facebook_hateful_memes", "custom"],
+        default="hate_speech_text",
+        choices=["hate_speech_text", "custom"],
         help="Type of dataset to use",
     )
     parser.add_argument(
-        "--data_path", type=str, required=True, help="Path to the dataset"
+        "--data_path", type=str, required=True, help="Path to the dataset CSV file"
     )
     parser.add_argument(
-        "--prompts_file", type=str, default=None, help="Path to prompts file (optional)"
+        "--prompts_file", type=str, default=None, help="Path to prompts parquet file (optional)"
     )
     parser.add_argument(
         "--max_samples",
@@ -208,32 +198,32 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--model_type",
         type=str,
-        default="idefics3",
-        choices=["idefics3", "custom"],
+        default="vllm",
+        choices=["vllm"],
         help="Type of model to use",
     )
     parser.add_argument(
         "--model_id",
         type=str,
-        default="HuggingFaceM4/Idefics3-8B-Llama3", # meta-llama/Llama-3.1-8B-Instruct
+        default="meta-llama/Llama-3.1-8B-Instruct",
         help="Model ID from HuggingFace",
     )
     parser.add_argument(
-        "--resolution_factor",
-        type=int,
-        default=4,
-        help="Resolution factor for image processing",
+        "--temperature",
+        type=float,
+        default=0.0,
+        help="Temperature for text generation",
     )
     parser.add_argument(
-        "--max_new_tokens",
+        "--max_tokens",
         type=int,
-        default=50,
-        help="Maximum number of new tokens to generate",
+        default=2048,
+        help="Maximum number of tokens to generate",
     )
 
     # Pipeline arguments
     parser.add_argument(
-        "--batch_size", type=int, default=2, help="Batch size for inference"
+        "--batch_size", type=int, default=32, help="Batch size for inference"
     )
     parser.add_argument(
         "--num_workers", type=int, default=4, help="Number of workers for DataLoader"
@@ -241,7 +231,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output_path",
         type=str,
-        default="results/classification_results.json",
+        default="results/text_classification_results.json",
         help="Path to save results",
     )
 
@@ -253,7 +243,7 @@ def main():
     args = parse_args()
 
     # Log configuration
-    logger.info("Starting classification pipeline...")
+    logger.info("Starting text classification pipeline...")
     logger.info(f"Dataset: {args.dataset_type}")
     logger.info(f"Model: {args.model_type} ({args.model_id})")
     logger.info(f"GPU State: {get_gpu_memory_info()}")
@@ -262,35 +252,39 @@ def main():
     model_config = ModelConfig(
         model_id=args.model_id,
         additional_params={
-            "resolution_factor": args.resolution_factor,
-            "max_new_tokens": args.max_new_tokens,
+            "temperature": args.temperature,
+            "max_tokens": args.max_tokens,
+            "seed": 22,
         },
     )
 
-    if args.model_type == "idefics3":
-        model = Idefics3Model(model_config)
+    if args.model_type == "vllm":
+        model = VLLMModel(model_config)
     else:
         raise ValueError(f"Unknown model type: {args.model_type}")
 
-    # Initialize dataset
+    # Initialize dataset components based on dataset type
     dataset_config = DatasetConfig(
         data_path=args.data_path, max_samples=args.max_samples
     )
 
-    if args.dataset_type == "facebook_hateful_memes":
-        dataset = FacebookHatefulMemesDataset(
-            dataset_config, model.get_processor(), args.prompts_file
+    if args.dataset_type == "hate_speech_text":
+        # Get processor/tokenizer from model
+        processor = model.tokenizer
+        
+        dataset = HateSpeechTextDataset(
+            dataset_config, processor, args.prompts_file
         )
-        parser = HatefulMemesPredictionParser()
-        converter = HatefulMemesLabelConverter()
+        parser = HateSpeechJsonParser()
+        converter = HateSpeechLabelConverter()
         evaluator = ClassificationEvaluator(
-            ["harmful", "target_group", "attack_method"]
+            ["is_hate_speech", "target_category", "specific_target"]
         )
     else:
         raise ValueError(f"Unknown dataset type: {args.dataset_type}")
 
     # Create and run pipeline
-    pipeline = ClassificationPipeline(
+    pipeline = TextClassificationPipeline(
         dataset=dataset,
         model=model,
         parser=parser,
@@ -315,11 +309,10 @@ def main():
 
     save_results(results, metrics, args.output_path, metadata)
 
+    # Cleanup model resources
+    model.cleanup()
+
     logger.info("Pipeline completed successfully!")
-
-
-if __name__ == "__main__":
-    main()
 
 
 # ==================== Utility Functions ====================
@@ -354,3 +347,7 @@ def save_results(
         json.dump(output_data, f, indent=2)
 
     logger.info(f"Results saved to {output_path}")
+
+
+if __name__ == "__main__":
+    main()

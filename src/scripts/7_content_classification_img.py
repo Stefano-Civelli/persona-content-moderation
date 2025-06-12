@@ -1,25 +1,21 @@
 import json
 import logging
 import argparse
-from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Tuple, Optional, Protocol
 from pathlib import Path
 
 import torch
-import numpy as np
 import pandas as pd
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 from sklearn.metrics import classification_report
-from PIL import Image
 
-from src.models.base import BaseModel, ModelConfig
+from src.models.base import BaseModel
 from src.datasets.base import (
     BaseDataset,
     PredictionParser,
     LabelConverter,
-    DatasetConfig,
 )
 from src.datasets.facebook_hateful_memes_dataset import FacebookHatefulMemesDataset
 from src.datasets.facebook_hateful_memes_parser import (
@@ -29,23 +25,14 @@ from src.datasets.facebook_hateful_memes_parser import (
 from src.models.idefics import Idefics3Model
 from utils.util import get_gpu_memory_info
 
+import os
+print(os.getcwd())
 
 # Setup logging
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class ClassificationResult:
-    """Structured result for a single classification."""
-
-    item_id: str
-    true_labels: Dict[str, Any]
-    raw_prediction: str
-    predicted_labels: Dict[str, Any]
-    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 # ==================== Evaluation Framework ====================
@@ -58,15 +45,15 @@ class ClassificationEvaluator:
         self.aspects = aspects
 
     def calculate_metrics(
-        self, results: List[ClassificationResult]
+        self, results: List[Dict[str, Any]]
     ) -> Dict[str, Dict[str, float]]:
         """Calculate metrics for each aspect."""
         metrics = {}
 
         for aspect in self.aspects:
-            y_true = [self._get_aspect_value(r.true_labels, aspect) for r in results]
+            y_true = [self._get_aspect_value(r["true_labels"], aspect) for r in results]
             y_pred = [
-                self._get_aspect_value(r.predicted_labels, aspect) for r in results
+                self._get_aspect_value(r["predicted_labels"], aspect) for r in results
             ]
 
             report = classification_report(
@@ -123,7 +110,7 @@ class ClassificationPipeline:
         # For now, return first label set (assuming single-sample batches for multi-label)
         return stacked_inputs, labels_list[0], ids_list, metadata_list
 
-    def run(self) -> Tuple[List[ClassificationResult], Dict[str, Dict[str, float]]]:
+    def run(self) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, float]]]:
         """Run the classification pipeline."""
         dataloader = DataLoader(
             self.dataset,
@@ -147,13 +134,13 @@ class ClassificationPipeline:
                 true_labels = self.converter.convert(batch_labels)
                 predicted_labels = self.parser.parse(pred)
 
-                result = ClassificationResult(
-                    item_id=item_ids[idx],
-                    true_labels=true_labels,
-                    raw_prediction=pred,
-                    predicted_labels=predicted_labels,
-                    metadata=metadata_list[idx] if metadata_list else {},
-                )
+                result = {
+                    "item_id": item_ids[idx],
+                    "true_labels": true_labels,
+                    "raw_prediction": pred,
+                    "predicted_labels": predicted_labels,
+                    "metadata": metadata_list[idx] if metadata_list else {},
+                }
 
                 results.append(result)
 
@@ -185,17 +172,16 @@ def parse_args() -> argparse.Namespace:
 
     # Dataset arguments
     parser.add_argument(
-        "--dataset_type",
+        "--data_path",
         type=str,
-        default="facebook_hateful_memes",
-        choices=["facebook_hateful_memes", "custom"],
-        help="Type of dataset to use",
+        default="data/raw/facebook-hateful-memes",
+        help="Path to the dataset",
     )
     parser.add_argument(
-        "--data_path", type=str, required=True, help="Path to the dataset"
-    )
-    parser.add_argument(
-        "--prompts_file", type=str, default=None, help="Path to prompts file (optional)"
+        "--prompts_file",
+        type=str,
+        default="data/processed/img_classification_prompts.pqt",
+        help="Path to prompts file (optional)",
     )
     parser.add_argument(
         "--max_samples",
@@ -203,19 +189,18 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Maximum number of samples to process",
     )
+    parser.add_argument(
+        "--output_path",
+        type=str,
+        default="data/results/classification/[MODEL_NAME]/[DATETIME].json",
+        help="Path to save results",
+    )
 
     # Model arguments
     parser.add_argument(
-        "--model_type",
-        type=str,
-        default="idefics3",
-        choices=["idefics3", "custom"],
-        help="Type of model to use",
-    )
-    parser.add_argument(
         "--model_id",
         type=str,
-        default="HuggingFaceM4/Idefics3-8B-Llama3", # meta-llama/Llama-3.1-8B-Instruct
+        default="HuggingFaceM4/Idefics3-8B-Llama3",
         help="Model ID from HuggingFace",
     )
     parser.add_argument(
@@ -238,12 +223,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--num_workers", type=int, default=4, help="Number of workers for DataLoader"
     )
-    parser.add_argument(
-        "--output_path",
-        type=str,
-        default="results/classification_results.json",
-        help="Path to save results",
-    )
 
     return parser.parse_args()
 
@@ -254,12 +233,16 @@ def main():
 
     # Log configuration
     logger.info("Starting classification pipeline...")
-    logger.info(f"Dataset: {args.dataset_type}")
-    logger.info(f"Model: {args.model_type} ({args.model_id})")
     logger.info(f"GPU State: {get_gpu_memory_info()}")
 
-    # Initialize model
-    model_config = ModelConfig(
+    args.output_path = args.output_path.replace(
+        "[MODEL_NAME]", args.model_id.split("/")[-1]
+    ).replace("[DATETIME]", pd.Timestamp.now().strftime("%Y%m%d_%H%M%S"))
+
+    logger.info(f"Output path: {args.output_path}")
+    logger.info(f"Using model: {args.model_id}")
+
+    model = Idefics3Model(
         model_id=args.model_id,
         additional_params={
             "resolution_factor": args.resolution_factor,
@@ -267,27 +250,15 @@ def main():
         },
     )
 
-    if args.model_type == "idefics3":
-        model = Idefics3Model(model_config)
-    else:
-        raise ValueError(f"Unknown model type: {args.model_type}")
-
-    # Initialize dataset
-    dataset_config = DatasetConfig(
-        data_path=args.data_path, max_samples=args.max_samples
+    dataset = FacebookHatefulMemesDataset(
+        args.data_path,
+        model.get_processor(),
+        args.prompts_file,
+        args.max_samples,
     )
-
-    if args.dataset_type == "facebook_hateful_memes":
-        dataset = FacebookHatefulMemesDataset(
-            dataset_config, model.get_processor(), args.prompts_file
-        )
-        parser = HatefulMemesPredictionParser()
-        converter = HatefulMemesLabelConverter()
-        evaluator = ClassificationEvaluator(
-            ["harmful", "target_group", "attack_method"]
-        )
-    else:
-        raise ValueError(f"Unknown dataset type: {args.dataset_type}")
+    parser = HatefulMemesPredictionParser()
+    converter = HatefulMemesLabelConverter()
+    evaluator = ClassificationEvaluator(["harmful", "target_group", "attack_method"])
 
     # Create and run pipeline
     pipeline = ClassificationPipeline(
@@ -326,7 +297,7 @@ if __name__ == "__main__":
 
 
 def save_results(
-    results: List[ClassificationResult],
+    results: List[Dict[str, Any]],
     metrics: Dict[str, Dict[str, float]],
     output_path: str,
     metadata: Optional[Dict[str, Any]] = None,
@@ -335,11 +306,11 @@ def save_results(
     output_data = {
         "results": [
             {
-                "item_id": r.item_id,
-                "true_labels": r.true_labels,
-                "predicted_labels": r.predicted_labels,
-                "raw_prediction": r.raw_prediction,
-                "metadata": r.metadata,
+                "item_id": r["item_id"],
+                "true_labels": r["true_labels"],
+                "predicted_labels": r["predicted_labels"],
+                "raw_prediction": r["raw_prediction"],
+                "metadata": r["metadata"],
             }
             for r in results
         ],

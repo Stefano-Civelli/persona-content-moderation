@@ -3,6 +3,7 @@ from transformers import AutoProcessor, AutoModelForVision2Seq
 from typing import Dict, Any, List
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+# PROBABLY DEPRECATED
 
 class MemeClassifier:
     def __init__(
