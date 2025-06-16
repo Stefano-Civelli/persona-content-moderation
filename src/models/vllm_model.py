@@ -4,7 +4,7 @@ from vllm.model_executor.guided_decoding import GuidedDecodingParams
 from transformers import AutoTokenizer
 import torch
 from typing import List, Any
-from src.datasets.hate_speech_text_dataset import ContentClassification
+from datasets.subdata_text_dataset import ContentClassification
 from vllm.model_executor.utils import set_random_seed
 
 
@@ -18,15 +18,18 @@ class VLLMModel(BaseModel):
         # Initialize VLLM
         self.llm = LLM(
             model=self.model_id,
+            tokenizer_mode="mistral" if "mistral" in self.model_id else "auto",
             trust_remote_code=True,
-            dtype="bfloat16" if torch.cuda.is_available() else "float32",
+            enforce_eager=True,
+            dtype="auto",
             gpu_memory_utilization=0.95,
             max_model_len=4096,
             tensor_parallel_size=1,
             enable_prefix_caching=True,
+            disable_log_stats=True,
+            max_model_len=self.additional_params.get("max_model_len", 400),
+            max_num_seqs=self.additional_params.get("max_num_seqs", 120)
         )
-
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_id)
 
         # Set up guided decoding for structured output
         self.json_schema = ContentClassification.model_json_schema()
@@ -40,20 +43,20 @@ class VLLMModel(BaseModel):
             guided_decoding=self.guided_decoding_params,
         )
 
-    def process_batch(self, batch: List[str]) -> List[str]:
+    def process_batch(self, prompts: List[str]) -> List[str]:
         """Process a batch of prompts and return predictions."""
-        # Apply chat template
-        formatted_prompts = []
-        for prompt in batch:
-            formatted_prompt = self.tokenizer.apply_chat_template(
-                [{"role": "user", "content": prompt}],
-                tokenize=False,
-                add_generation_prompt=True,
-            )
-            formatted_prompts.append(formatted_prompt)
+        # # Apply chat template
+        # formatted_prompts = []
+        # for prompt in batch:
+        #     formatted_prompt = self.tokenizer.apply_chat_template(
+        #         [{"role": "user", "content": prompt}],
+        #         tokenize=False,
+        #         add_generation_prompt=True,
+        #     )
+        #     formatted_prompts.append(formatted_prompt)
 
         # Generate
-        outputs = self.llm.generate(formatted_prompts, self.sampling_params)
+        outputs = self.llm.generate(prompts, self.sampling_params)
 
         # Extract predictions
         predictions = []

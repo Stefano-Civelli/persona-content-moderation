@@ -1,11 +1,12 @@
 import torch
 import json
-import os
-import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import numpy as np
 import seaborn as sns
 from matplotlib import pyplot as plt
+import pickle
+from pathlib import Path
+from sklearn.metrics import classification_report
 
 
 def get_gpu_memory_info() -> str:
@@ -15,6 +16,7 @@ def get_gpu_memory_info() -> str:
         reserved = torch.cuda.memory_reserved() / 1024**3
         return f"Allocated: {allocated:.2f}GB, Reserved: {reserved:.2f}GB"
     return "No GPU available"
+
 
 # def save_results(
 #     results: List[Dict[str, Any]],
@@ -35,6 +37,72 @@ def get_gpu_memory_info() -> str:
 #         json.dump(output_data, f, indent=2)
 
 #     print(f"\nResults saved to: {output_file}")
+
+
+def save_results(
+    results: List[Dict[str, Any]],
+    metrics: Dict[str, Dict[str, float]],
+    output_path: str,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Save results and metrics to file."""
+    output_data = {
+        "metrics": metrics,
+        "metadata": metadata or {},
+        "results": [
+            {
+                "item_id": r["item_id"],
+                "true_labels": r["true_labels"],
+                "predicted_labels": r["predicted_labels"],
+                "raw_prediction": r["raw_prediction"],
+                "persona_id": r["persona_id"],
+                "persona_pos": r["persona_pos"],
+            }
+            for r in results
+        ]
+    }
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(output_path, "w") as f:
+        json.dump(output_data, f, indent=2)
+
+
+class ClassificationEvaluator:
+    """Handles evaluation and metrics calculation."""
+
+    def __init__(self, aspects: List[str]):
+        self.aspects = aspects
+
+    def calculate_metrics(
+        self, results: List[Dict[str, Any]]
+    ) -> Dict[str, Dict[str, float]]:
+        """Calculate metrics for each aspect."""
+        metrics = {}
+
+        for aspect in self.aspects:
+            y_true = [self._get_aspect_value(r["true_labels"], aspect) for r in results]
+            y_pred = [
+                self._get_aspect_value(r["predicted_labels"], aspect) for r in results
+            ]
+
+            report = classification_report(
+                y_true, y_pred, output_dict=True, zero_division=0
+            )
+
+            metrics[aspect] = {
+                "accuracy": report["accuracy"],
+                "macro_f1": report["macro avg"]["f1-score"],
+                "weighted_f1": report["weighted avg"]["f1-score"],
+            }
+
+        return metrics
+
+    def _get_aspect_value(self, labels: Dict, aspect: str) -> str:
+        """Extract aspect value from labels."""
+        value = labels.get(aspect, "unknown")
+        return str(value).lower()
 
 
 def visualize_agreement_matrix(
@@ -114,8 +182,6 @@ def visualize_agreement_matrix(
     )
     plt.close()
 
-
-import pickle
 
 if __name__ == "__main__":
 

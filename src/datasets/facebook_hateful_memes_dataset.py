@@ -10,10 +10,11 @@ class FacebookHatefulMemesDataset(BaseDataset):
     """Dataset implementation for Facebook Hateful Memes."""
 
     def __init__(
-        self, data_path: str, processor, prompts_file: str, max_samples: Optional[int] = None,seed: int = 42, **additional_params: Any
+        self, data_path: str, labels_relative_location: str, processor, prompts_file: str, max_samples: Optional[int] = None,seed: int = 42, **additional_params: Any
     ):
         self.processor = processor
         self.prompts_file = prompts_file
+        self.labels_relative_location = labels_relative_location
         self.prompts = {}
         self.persona_ids = []
         self._load_prompts()
@@ -29,17 +30,21 @@ class FacebookHatefulMemesDataset(BaseDataset):
 
     def load_dataset(self) -> None:
         """Load Facebook Hateful Memes dataset."""
-        train_path = Path(self.data_path) / "fine_grained_labels" / "train.jsonl"
+        labels_path = Path(self.data_path) / self.labels_relative_location
 
-        with open(train_path, "r") as f:
+        with open(labels_path, "r") as f:
             data = [json.loads(line) for line in f]
 
-        # Filter single-label items
+
+        # filter away data items where gold_pc or gold_attack contain more than one label
+        total_before = len(data)
         data = [
             item
             for item in data
             if len(item["gold_pc"]) == 1 and len(item["gold_attack"]) == 1
         ]
+        ignored_items = total_before - len(data)
+        print(f"===Ignored {ignored_items} items due to multiple labels in gold_pc or gold_attack===")
 
         if self.max_samples:
             import random
@@ -71,8 +76,6 @@ class FacebookHatefulMemesDataset(BaseDataset):
         persona_id = self.persona_ids[prompt_idx]
         prompt, persona_pos = self.prompts[persona_id]
 
-        metadata = {"persona_id": persona_id, "persona_pos": persona_pos}
-
         # Load and process image
         image = Image.open(item["image_path"]).convert("RGB")
 
@@ -96,7 +99,7 @@ class FacebookHatefulMemesDataset(BaseDataset):
         # Remove batch dimension
         inputs = {k: v.squeeze(0) for k, v in inputs.items()}
 
-        return inputs, item["labels"], item["item_id"], metadata
+        return inputs, item["labels"], item["item_id"], persona_id, persona_pos
 
     def __len__(self) -> int:
         """Return total number of items including prompt variations."""

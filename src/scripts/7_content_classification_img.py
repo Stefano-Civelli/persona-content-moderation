@@ -1,15 +1,13 @@
 import json
 import logging
 import argparse
-from dataclasses import dataclass, field
-from typing import Dict, Any, List, Tuple, Optional, Protocol
-from pathlib import Path
+from typing import Dict, Any, List, Tuple
 
 import torch
 import pandas as pd
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from sklearn.metrics import classification_report
+
 
 from src.models.base import BaseModel
 from src.datasets.base import (
@@ -22,10 +20,11 @@ from src.datasets.facebook_hateful_memes_parser import (
     HatefulMemesPredictionParser,
     HatefulMemesLabelConverter,
 )
-from src.models.idefics import Idefics3Model
-from utils.util import get_gpu_memory_info
+from src.models.vision_model import Idefics3Model
+from utils.util import ClassificationEvaluator, get_gpu_memory_info, save_results
 
 import os
+
 print(os.getcwd())
 
 # Setup logging
@@ -33,45 +32,6 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
-
-
-# ==================== Evaluation Framework ====================
-
-
-class ClassificationEvaluator:
-    """Handles evaluation and metrics calculation."""
-
-    def __init__(self, aspects: List[str]):
-        self.aspects = aspects
-
-    def calculate_metrics(
-        self, results: List[Dict[str, Any]]
-    ) -> Dict[str, Dict[str, float]]:
-        """Calculate metrics for each aspect."""
-        metrics = {}
-
-        for aspect in self.aspects:
-            y_true = [self._get_aspect_value(r["true_labels"], aspect) for r in results]
-            y_pred = [
-                self._get_aspect_value(r["predicted_labels"], aspect) for r in results
-            ]
-
-            report = classification_report(
-                y_true, y_pred, output_dict=True, zero_division=0
-            )
-
-            metrics[aspect] = {
-                "accuracy": report["accuracy"],
-                "macro_f1": report["macro avg"]["f1-score"],
-                "weighted_f1": report["weighted avg"]["f1-score"],
-            }
-
-        return metrics
-
-    def _get_aspect_value(self, labels: Dict, aspect: str) -> str:
-        """Extract aspect value from labels."""
-        value = labels.get(aspect, "unknown")
-        return str(value).lower()
 
 
 # ==================== Main Pipeline ====================
@@ -99,16 +59,77 @@ class ClassificationPipeline:
         self.num_workers = num_workers
 
     def custom_collate_fn(self, batch):
-        """Custom collate function for DataLoader."""
-        inputs_list, labels_list, ids_list, metadata_list = zip(*batch)
+        """
+        Custom collate function for IDEFICS model with left padding
 
-        # Stack inputs
-        stacked_inputs = {}
-        for key in inputs_list[0].keys():
-            stacked_inputs[key] = torch.stack([inp[key] for inp in inputs_list])
+        Args:
+            batch: List of tuples (inputs, labels, img_name)
 
-        # For now, return first label set (assuming single-sample batches for multi-label)
-        return stacked_inputs, labels_list[0], ids_list, metadata_list
+        Returns:
+            Tuple of (batched_inputs, batched_labels, img_names)
+        """
+        # Unzip the batch into separate lists
+        inputs, labels, img_names, persona_id, persona_pos = zip(*batch)
+
+        # Process inputs
+        pixel_values = [item["pixel_values"] for item in inputs]
+        pixel_attention_mask = [item["pixel_attention_mask"] for item in inputs]
+        input_ids = [item["input_ids"] for item in inputs]
+        attention_mask = [item["attention_mask"] for item in inputs]
+
+        # print(f'Pixel values shape: {pixel_values[0].shape}')
+        # Stack pixel values and pixel attention mask
+        pixel_values = torch.stack(pixel_values)
+        pixel_attention_mask = torch.stack(pixel_attention_mask)
+
+        # Find max length in this batch
+        max_len = max(ids.size(0) for ids in input_ids)
+        batch_size = len(input_ids)
+
+        # Create tensors for left-padded sequences
+        padded_input_ids = torch.full(
+            (batch_size, max_len), 128002, dtype=input_ids[0].dtype
+        )
+        padded_attention_mask = torch.zeros(
+            (batch_size, max_len), dtype=attention_mask[0].dtype
+        )
+
+        # Fill in the sequences from the right
+        for i, (ids, mask) in enumerate(zip(input_ids, attention_mask)):
+            seq_len = ids.size(0)
+            padded_input_ids[i, -seq_len:] = ids
+            padded_attention_mask[i, -seq_len:] = mask
+
+        # Create batched inputs dictionary
+        batched_inputs = {
+            "pixel_values": pixel_values,
+            "pixel_attention_mask": pixel_attention_mask,
+            "input_ids": padded_input_ids,
+            "attention_mask": padded_attention_mask,
+        }
+
+        # Process labels - assuming they're dictionaries
+        batched_labels = {}
+        if labels and isinstance(labels[0], dict):
+            all_keys = set().union(*[d.keys() for d in labels])
+
+            for key in all_keys:
+                values = [d.get(key) for d in labels]
+                if all(isinstance(v, (int, float, bool, torch.Tensor)) for v in values):
+                    if isinstance(values[0], torch.Tensor):
+                        batched_labels[key] = torch.stack(values)
+                    else:
+                        batched_labels[key] = torch.tensor(values)
+                else:
+                    batched_labels[key] = values
+
+        return (
+            batched_inputs,
+            batched_labels,
+            list(img_names),
+            list(persona_id),
+            list(persona_pos),
+        )
 
     def run(self) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, float]]]:
         """Run the classification pipeline."""
@@ -127,7 +148,7 @@ class ClassificationPipeline:
             f"Processing {len(self.dataset)} items in batches of {self.batch_size}..."
         )
 
-        for batch_inputs, batch_labels, item_ids, metadata_list in tqdm(dataloader):
+        for batch_inputs, batch_labels, item_ids, persona_ids, persona_pos in tqdm(dataloader):
             predictions = self.model.process_batch(batch_inputs)
 
             for idx, pred in enumerate(predictions):
@@ -139,13 +160,14 @@ class ClassificationPipeline:
                     "true_labels": true_labels,
                     "raw_prediction": pred,
                     "predicted_labels": predicted_labels,
-                    "metadata": metadata_list[idx] if metadata_list else {},
+                    "persona_id": persona_ids[idx],
+                    "persona_pos": persona_pos[idx],
                 }
 
                 results.append(result)
 
-                # Log progress every 100 items
-                if len(results) % 100 == 0:
+                # Log progress every 500 items
+                if len(results) % 500 == 0:
                     running_metrics = self.evaluator.calculate_metrics(results)
                     logger.info(f"\nProgress: {len(results)} items processed")
                     self._log_metrics(running_metrics)
@@ -178,6 +200,13 @@ def parse_args() -> argparse.Namespace:
         help="Path to the dataset",
     )
     parser.add_argument(
+        "--labels_relative_location",
+        type=str,
+        default="fine_grained_labels/dev_unseen.jsonl",
+        help="Path to the dataset",
+    )
+
+    parser.add_argument(
         "--prompts_file",
         type=str,
         default="data/processed/img_classification_prompts.pqt",
@@ -187,7 +216,7 @@ def parse_args() -> argparse.Namespace:
         "--max_samples",
         type=int,
         default=None,
-        help="Maximum number of samples to process",
+        help="Number of images from the dataset to process (optional)",
     )
     parser.add_argument(
         "--output_path",
@@ -221,7 +250,7 @@ def parse_args() -> argparse.Namespace:
         "--batch_size", type=int, default=2, help="Batch size for inference"
     )
     parser.add_argument(
-        "--num_workers", type=int, default=4, help="Number of workers for DataLoader"
+        "--num_workers", type=int, default=10, help="Number of workers for DataLoader"
     )
 
     return parser.parse_args()
@@ -242,6 +271,7 @@ def main():
     logger.info(f"Output path: {args.output_path}")
     logger.info(f"Using model: {args.model_id}")
 
+    # ========== Create Objects ==========
     model = Idefics3Model(
         model_id=args.model_id,
         additional_params={
@@ -252,11 +282,14 @@ def main():
 
     dataset = FacebookHatefulMemesDataset(
         args.data_path,
+        args.labels_relative_location,
         model.get_processor(),
         args.prompts_file,
         args.max_samples,
     )
+    # for predicted labels
     parser = HatefulMemesPredictionParser()
+    # for true labels
     converter = HatefulMemesLabelConverter()
     evaluator = ClassificationEvaluator(["harmful", "target_group", "attack_method"])
 
@@ -270,58 +303,24 @@ def main():
         batch_size=args.batch_size,
         num_workers=args.num_workers,
     )
+    # ========== Create Objects ==========
 
     results, metrics = pipeline.run()
 
-    # Log final metrics
     logger.info("\nFinal Metrics:")
     pipeline._log_metrics(metrics)
 
     # Save results
     metadata = {
         "args": vars(args),
-        "device": model.config.device,
         "timestamp": pd.Timestamp.now().isoformat(),
     }
 
     save_results(results, metrics, args.output_path, metadata)
+    logger.info(f"Results saved to {args.output_path}")
 
     logger.info("Pipeline completed successfully!")
 
 
 if __name__ == "__main__":
     main()
-
-
-# ==================== Utility Functions ====================
-
-
-def save_results(
-    results: List[Dict[str, Any]],
-    metrics: Dict[str, Dict[str, float]],
-    output_path: str,
-    metadata: Optional[Dict[str, Any]] = None,
-) -> None:
-    """Save results and metrics to file."""
-    output_data = {
-        "results": [
-            {
-                "item_id": r["item_id"],
-                "true_labels": r["true_labels"],
-                "predicted_labels": r["predicted_labels"],
-                "raw_prediction": r["raw_prediction"],
-                "metadata": r["metadata"],
-            }
-            for r in results
-        ],
-        "metrics": metrics,
-        "metadata": metadata or {},
-    }
-
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with open(output_path, "w") as f:
-        json.dump(output_data, f, indent=2)
-
-    logger.info(f"Results saved to {output_path}")

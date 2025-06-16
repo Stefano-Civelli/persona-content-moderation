@@ -2,16 +2,19 @@ from typing import Dict, List, Any
 
 import torch
 from src.models.base import BaseModel
+from transformers import AutoProcessor, AutoModelForVision2Seq
 
 class Idefics3Model(BaseModel):
     """Idefics3 model implementation."""
 
     def setup_model(self) -> None:
         """Initialize Idefics3 model and processor."""
-        from transformers import AutoProcessor, AutoModelForVision2Seq
-
+        
         resolution_factor = self.additional_params.get("resolution_factor", 4)
 
+        # This is a Idefics3Processor because 
+        # Idefics3Processor offers all the functionalities of Idefics3ImageProcessor.
+        # So no need to instantiate both
         self.processor = AutoProcessor.from_pretrained(
             self.model_id,
             size={"longest_edge": resolution_factor * 364},

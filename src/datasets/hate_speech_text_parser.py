@@ -1,7 +1,7 @@
 import json
 from typing import Any, Dict
 from src.datasets.base import PredictionParser, LabelConverter
-from src.datasets.hate_speech_text_dataset import ContentClassification
+from datasets.subdata_text_dataset import ContentClassification
 
 class HateSpeechJsonParser(PredictionParser):
     """Parser for JSON-structured hate speech predictions."""
