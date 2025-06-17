@@ -2,6 +2,7 @@ import json
 import logging
 import argparse
 from typing import Dict, Any, List, Tuple
+import yaml
 
 import torch
 import pandas as pd
@@ -187,105 +188,38 @@ class ClassificationPipeline:
 
 # ==================== Main Entry Point ====================
 
-
-def parse_args() -> argparse.Namespace:
-    """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description="Multi-label Classification Framework")
-
-    # Dataset arguments
-    parser.add_argument(
-        "--data_path",
-        type=str,
-        default="data/raw/facebook-hateful-memes",
-        help="Path to the dataset",
-    )
-    parser.add_argument(
-        "--labels_relative_location",
-        type=str,
-        default="fine_grained_labels/dev_unseen.jsonl",
-        help="Path to the dataset",
-    )
-
-    parser.add_argument(
-        "--prompts_file",
-        type=str,
-        default="data/processed/img_classification_prompts.pqt",
-        help="Path to prompts file (optional)",
-    )
-    parser.add_argument(
-        "--max_samples",
-        type=int,
-        default=None,
-        help="Number of images from the dataset to process (optional)",
-    )
-    parser.add_argument(
-        "--output_path",
-        type=str,
-        default="data/results/classification/[MODEL_NAME]/[DATETIME].json",
-        help="Path to save results",
-    )
-
-    # Model arguments
-    parser.add_argument(
-        "--model_id",
-        type=str,
-        default="HuggingFaceM4/Idefics3-8B-Llama3",
-        help="Model ID from HuggingFace",
-    )
-    parser.add_argument(
-        "--resolution_factor",
-        type=int,
-        default=4,
-        help="Resolution factor for image processing",
-    )
-    parser.add_argument(
-        "--max_new_tokens",
-        type=int,
-        default=50,
-        help="Maximum number of new tokens to generate",
-    )
-
-    # Pipeline arguments
-    parser.add_argument(
-        "--batch_size", type=int, default=2, help="Batch size for inference"
-    )
-    parser.add_argument(
-        "--num_workers", type=int, default=10, help="Number of workers for DataLoader"
-    )
-
-    return parser.parse_args()
-
-
 def main():
     """Main execution function."""
-    args = parse_args()
+
+    with open("config_img.yaml", "r") as f:
+        config = yaml.safe_load(f)
 
     # Log configuration
     logger.info("Starting classification pipeline...")
     logger.info(f"GPU State: {get_gpu_memory_info()}")
 
-    args.output_path = args.output_path.replace(
-        "[MODEL_NAME]", args.model_id.split("/")[-1]
+    config["output_path"] = config["output_path"].replace(
+        "[MODEL_NAME]", config["model_id"].split("/")[-1]
     ).replace("[DATETIME]", pd.Timestamp.now().strftime("%Y%m%d_%H%M%S"))
 
-    logger.info(f"Output path: {args.output_path}")
-    logger.info(f"Using model: {args.model_id}")
+    logger.info(f"Output path: {config['output_path']}")
+    logger.info(f"Using model: {config['model_id']}")
 
     # ========== Create Objects ==========
     model = Idefics3Model(
-        model_id=args.model_id,
+        model_id=config["model_id"],
         additional_params={
-            "resolution_factor": args.resolution_factor,
-            "max_new_tokens": args.max_new_tokens,
+            "resolution_factor": config["resolution_factor"],
+            "max_new_tokens": config["max_new_tokens"],
         },
     )
 
     dataset = FacebookHatefulMemesDataset(
-        args.data_path,
-        args.labels_relative_location,
+        config["data_path"],
+        config["labels_relative_location"],
         model.get_processor(),
-        args.prompts_file,
-        args.max_samples,
+        config["prompts_file"],
+        config["max_samples"],
     )
     # for predicted labels
     parser = HatefulMemesPredictionParser()
@@ -300,8 +234,8 @@ def main():
         parser=parser,
         converter=converter,
         evaluator=evaluator,
-        batch_size=args.batch_size,
-        num_workers=args.num_workers,
+        batch_size=config["batch_size"],
+        num_workers=config["num_workers"],
     )
     # ========== Create Objects ==========
 
@@ -312,12 +246,12 @@ def main():
 
     # Save results
     metadata = {
-        "args": vars(args),
+        "config": config,
         "timestamp": pd.Timestamp.now().isoformat(),
     }
 
-    save_results(results, metrics, args.output_path, metadata)
-    logger.info(f"Results saved to {args.output_path}")
+    save_results(results, metrics, config["output_path"], metadata)
+    logger.info(f"Results saved to {config['output_path']}")
 
     logger.info("Pipeline completed successfully!")
 

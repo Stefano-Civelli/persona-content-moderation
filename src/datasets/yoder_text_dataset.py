@@ -3,7 +3,7 @@ import random
 import json
 from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
-from src.datasets.base import BaseDataset, DatasetConfig
+from src.datasets.base import BaseDataset
 from pydantic import BaseModel
 
 

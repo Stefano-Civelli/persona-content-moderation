@@ -9,7 +9,7 @@ import pandas as pd
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from datasets.yoder_text_parser import YoderLabelConverter, YoderPredictionParser
+from src.datasets.yoder_text_parser import YoderLabelConverter, YoderPredictionParser
 from src.models.base import (
     BaseModel as ScriptBaseModel,
 )  # Renamed to avoid conflict with pydantic.BaseModel
@@ -23,13 +23,10 @@ from src.datasets.base import (
 # Assuming YoderIdentityDataset and IdentityContentClassification are in yoder_text_dataset
 from src.datasets.yoder_text_dataset import (
     YoderIdentityDataset,
-    IdentityContentClassification,
     map_grouping,  # If needed by converter/parser
 )
 from utils.util import ClassificationEvaluator, get_gpu_memory_info, save_results
 from transformers import AutoTokenizer
-from vllm.model_executor.guided_decoding import GuidedDecodingParams
-from vllm import SamplingParams
 import os
 
 # Setup logging
@@ -39,30 +36,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# ==================== Model Adaptation ====================
-class YoderVLLMModel(VLLMModel):
-    """VLLM model specifically for Yoder text classification with IdentityContentClassification schema."""
 
-    def setup_model(self) -> None:
-        """Initialize VLLM with guided decoding for IdentityContentClassification."""
-        super().setup_model()  # Calls the parent's setup_model
-
-        # Override the json_schema to use IdentityContentClassification
-        self.json_schema = IdentityContentClassification.model_json_schema()
-        logger.info(
-            f"Using JSON schema for IdentityContentClassification: {self.json_schema}"
-        )
-
-        # Re-create guided_decoding_params and sampling_params with the new schema
-        self.guided_decoding_params = GuidedDecodingParams(json_schema=self.json_schema)
-        self.sampling_params = SamplingParams(
-            temperature=self.additional_params.get("temperature", 0.0),
-            top_p=self.additional_params.get("top_p", 1.0),
-            max_tokens=self.additional_params.get(
-                "max_tokens", 512
-            ),  # Adjusted for text classification
-            guided_decoding_params=self.guided_decoding_params,
-        )
 
 
 class ClassificationPipeline:
@@ -156,7 +130,7 @@ class ClassificationPipeline:
 # ==================== Main ====================
 def main():
 
-    with open("config.yaml", "r") as f:
+    with open("config_text.yaml", "r") as f:
         config = yaml.safe_load(f)
 
     logger.info("Starting text classification pipeline...")
@@ -165,7 +139,7 @@ def main():
     # Process template strings in paths
     config["prompts_file"] = (
         config["prompts_file"]
-        .replace("[DATASET]", "yoder")
+        .replace("[DATASET]", "YODER")
         .replace("[MODEL_NAME]", config["model_id"].split("/")[-1])
     )
 
@@ -181,7 +155,7 @@ def main():
     logger.info(f"Output path: {config['output_path']}")
     logger.info(f"Using model: {config['model_id']}")
 
-    model = YoderVLLMModel(
+    model = VLLMModel(
         model_id=config["model_id"],
         additional_params={
             "seed": config["vllm_seed"],

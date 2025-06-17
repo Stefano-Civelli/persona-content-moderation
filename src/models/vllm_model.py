@@ -1,12 +1,10 @@
 from src.models.base import BaseModel
 from vllm import LLM, SamplingParams
-from vllm.model_executor.guided_decoding import GuidedDecodingParams
-from transformers import AutoTokenizer
+from vllm.sampling_params import GuidedDecodingParams
 import torch
 from typing import List, Any
-from datasets.subdata_text_dataset import ContentClassification
 from vllm.model_executor.utils import set_random_seed
-
+from src.datasets.yoder_text_dataset import IdentityContentClassification
 
 class VLLMModel(BaseModel):
     """VLLM model implementation for text classification."""
@@ -23,7 +21,6 @@ class VLLMModel(BaseModel):
             enforce_eager=True,
             dtype="auto",
             gpu_memory_utilization=0.95,
-            max_model_len=4096,
             tensor_parallel_size=1,
             enable_prefix_caching=True,
             disable_log_stats=True,
@@ -32,14 +29,14 @@ class VLLMModel(BaseModel):
         )
 
         # Set up guided decoding for structured output
-        self.json_schema = ContentClassification.model_json_schema()
+        self.json_schema = IdentityContentClassification.model_json_schema()
         self.guided_decoding_params = GuidedDecodingParams(json=self.json_schema)
 
         # Sampling parameters
         self.sampling_params = SamplingParams(
             temperature=self.additional_params.get("temperature", 0.0),
             top_p=self.additional_params.get("top_p", 1.0),
-            max_tokens=self.additional_params.get("max_tokens", 2048),
+            max_tokens=self.additional_params.get("max_tokens", 512),
             guided_decoding=self.guided_decoding_params,
         )
 
