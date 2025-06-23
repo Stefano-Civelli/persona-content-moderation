@@ -1,7 +1,7 @@
 # Dataset Configuration
 data_path: "data/raw/yoder_data/sampled/identity_hate_corpora.jsonl"
 prompts_file: "data/processed/classification_prompts/[DATASET]_[MODEL_NAME]_corners.pqt"
-max_samples: null  # Set to a number to limit samples, or null for all
+max_samples: 200  # Set to a number to limit samples, or null for all
 output_path: "data/results/text_classification/[MODEL_NAME]/[DATETIME].json"
 
 # Model Configuration
@@ -13,6 +13,6 @@ max_model_len: 400
 max_num_seqs: 120
 
 # Pipeline Configuration
-batch_size: 16
+batch_size: 5000
 num_workers: 4
 dataset_seed: 42

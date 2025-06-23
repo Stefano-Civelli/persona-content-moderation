@@ -29,19 +29,23 @@ class YoderPredictionParser(PredictionParser):
         try:
             # Assuming prediction is a JSON string
             parsed_obj = IdentityContentClassification.model_validate_json(prediction)
-            return parsed_obj.model_dump()
+            dumped_obj = parsed_obj.model_dump()
+            return {
+                "is_hate_speech": dumped_obj["is_hate_speech"] == isHateSpeech.true,
+                "target_category": dumped_obj["target_category"].value,
+            }
         except json.JSONDecodeError:
             logger.error(f"Failed to decode JSON: {prediction}")
             # Return a default/error structure
             return {
-                "is_hate_speech": isHateSpeech.no,
-                "target_category": IdentityTargetCategory.none,
+                "is_hate_speech": False,
+                "target_category": IdentityTargetCategory.none.value,
             }
         except Exception as e:
             logger.error(f"Error parsing prediction: {prediction}. Error: {e}")
             return {
-                "is_hate_speech": isHateSpeech.no,
-                "target_category": IdentityTargetCategory.none,
+                "is_hate_speech": False,
+                "target_category": IdentityTargetCategory.none.value,
             }
 
 
@@ -52,6 +56,6 @@ class YoderLabelConverter(LabelConverter):
         # Dataset label format: {"hate": "yes"/"no", "target": "category_string"}
         # Output format for evaluation: {"is_hate_speech": "yes/no", "target_category": "category_string"}
         return {
-            "is_hate_speech": label.get("hate", isHateSpeech.no.value),
+            "is_hate_speech": label.get("hate", isHateSpeech.false.value),
             "target_category": label.get("target", IdentityTargetCategory.none.value),
         }

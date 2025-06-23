@@ -28,8 +28,8 @@ def map_grouping(grouping: str) -> str:
 
 
 class isHateSpeech(str, Enum):
-    yes = "yes"
-    no = "no"
+    true = "true"
+    false = "false"
 
 
 # Identity categories (specific groups)
@@ -64,6 +64,7 @@ class YoderIdentityDataset(BaseDataset):
         text_field: str = "text",
         is_hate_field: str = "hate",
         target_field: str = "grouping",
+        fold: Optional[str] = None,
         **additional_params: Any
     ):
         self.tokenizer = tokenizer
@@ -74,6 +75,7 @@ class YoderIdentityDataset(BaseDataset):
         self.text_field = text_field
         self.is_hate_field = is_hate_field
         self.target_field = target_field
+        self.fold = fold
         self._load_prompts()
 
         super().__init__(data_path, max_samples, seed, **additional_params)
@@ -89,6 +91,9 @@ class YoderIdentityDataset(BaseDataset):
 
         with open(self.data_path, "r") as f:
             data = [json.loads(line) for line in f]
+
+        if self.fold:
+            data = [item for item in data if item.get("fold") == self.fold]
 
         if self.max_samples:
             random.seed(self.seed)
@@ -110,8 +115,6 @@ class YoderIdentityDataset(BaseDataset):
         prompt, persona_pos = self.prompts[persona_id]
 
         prompt = prompt.replace("[TEXT]", item[self.text_field])
-        print(f"Prompt: {prompt}")
-        assert False
 
         # Prepare message
         message = {"role": "user", "content": prompt}
@@ -124,7 +127,4 @@ class YoderIdentityDataset(BaseDataset):
         return prompt_text, label, str(item_idx), persona_id, persona_pos
 
     def __len__(self) -> int:
-        """Return total number of items including prompt variations."""
-        if self.prompts:
-            return len(self.items) * len(self.prompts)
-        return len(self.items)
+        return self.data_df.shape[0] * len(self.prompts)

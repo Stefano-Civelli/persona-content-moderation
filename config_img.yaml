@@ -3,7 +3,7 @@ data_path: "data/raw/facebook-hateful-memes"
 labels_relative_location: "fine_grained_labels/dev_unseen.jsonl"
 prompts_file: "data/processed/img_classification_prompts.pqt"
 max_samples: null  # Set to a number to limit samples, or null for all
-output_path: "data/results/classification/[MODEL_NAME]/[DATETIME].json"
+output_path: "data/results/img_classification/[MODEL_NAME]/[DATETIME].json"
 
 # Model Configuration
 model_id: "HuggingFaceM4/Idefics3-8B-Llama3"

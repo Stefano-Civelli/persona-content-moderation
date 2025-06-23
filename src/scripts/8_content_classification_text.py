@@ -1,6 +1,8 @@
-import json
 import logging
-import argparse
+import vllm  # Ensure vLLM is imported before torch to avoid conflicts even if it's not used in this file
+
+# os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
+# import multiprocessing
 from typing import Dict, Any, List, Tuple
 import yaml
 
@@ -8,11 +10,14 @@ import torch
 import pandas as pd
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+import os
 
 from src.datasets.yoder_text_parser import YoderLabelConverter, YoderPredictionParser
 from src.models.base import (
     BaseModel as ScriptBaseModel,
 )  # Renamed to avoid conflict with pydantic.BaseModel
+
+
 from src.models.vllm_model import VLLMModel
 from src.datasets.base import (
     BaseDataset,
@@ -25,18 +30,15 @@ from src.datasets.yoder_text_dataset import (
     YoderIdentityDataset,
     map_grouping,  # If needed by converter/parser
 )
-from utils.util import ClassificationEvaluator, get_gpu_memory_info, save_results
+from utils.util import ClassificationEvaluator, save_results
 from transformers import AutoTokenizer
-import os
+
 
 # Setup logging
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
-
-
-
 
 
 class ClassificationPipeline:
@@ -60,15 +62,15 @@ class ClassificationPipeline:
         self.batch_size = batch_size
         self.num_workers = num_workers
 
-    # def custom_collate_fn(self, batch: List[Tuple[str, Dict, str, str, str]]):
-    #     prompts, labels, item_ids, persona_ids, persona_pos = zip(*batch)
-    #     return (
-    #         list(prompts),
-    #         list(labels),
-    #         list(item_ids),
-    #         list(persona_ids),
-    #         list(persona_pos),
-    #     )
+    def custom_collate_fn(self, batch: List[Tuple[str, Dict, str, str, str]]):
+        prompts, labels, item_ids, persona_ids, persona_pos = zip(*batch)
+        return (
+            list(prompts),
+            list(labels),
+            list(item_ids),
+            list(persona_ids),
+            list(persona_pos),
+        )
 
     def run(self) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, float]]]:
         """Run the classification pipeline."""
@@ -78,7 +80,7 @@ class ClassificationPipeline:
             shuffle=False,
             num_workers=self.num_workers,
             pin_memory=torch.cuda.is_available(),
-            # collate_fn=self.custom_collate_fn,  # Using a simple collate for text
+            collate_fn=self.custom_collate_fn,  # Using a simple collate for text
         )
 
         results = []
@@ -111,10 +113,9 @@ class ClassificationPipeline:
                 }
                 results.append(result)
 
-                if len(results) % 300 == 0:
-                    running_metrics = self.evaluator.calculate_metrics(results)
-                    logger.info(f"\nProgress: {len(results)} items processed")
-                    self._log_metrics(running_metrics)
+            running_metrics = self.evaluator.calculate_metrics(results)
+            logger.info(f"\nProgress: {len(results)} items processed")
+            self._log_metrics(running_metrics)
 
         final_metrics = self.evaluator.calculate_metrics(results)
         return results, final_metrics
@@ -129,12 +130,10 @@ class ClassificationPipeline:
 
 # ==================== Main ====================
 def main():
+    # multiprocessing.set_start_method("spawn", force=True)
 
     with open("config_text.yaml", "r") as f:
         config = yaml.safe_load(f)
-
-    logger.info("Starting text classification pipeline...")
-    logger.info(f"GPU State: {get_gpu_memory_info()}")
 
     # Process template strings in paths
     config["prompts_file"] = (
@@ -168,6 +167,7 @@ def main():
 
     tokenizer = AutoTokenizer.from_pretrained(config["model_id"])
 
+    # TODO should be ok what is said below
     # IMPORTANT: Ensure YoderIdentityDataset is modified to:
     # 1. Return raw prompt content (not pre-formatted with chat template).
     # 2. Return an item_id, e.g., str(item_idx) from its __getitem__.
@@ -178,11 +178,16 @@ def main():
         prompts_file=config["prompts_file"],
         max_samples=config["max_samples"],
         seed=config["dataset_seed"],
+        fold="test",
     )
+
+    # print some debugging information
+    logger.info(f"Dataset size: {len(dataset)}")
+    logger.info(f"Sample item: {dataset[0]}")  # Print first item for debugging
 
     parser = YoderPredictionParser()
     converter = YoderLabelConverter()
-    evaluator = ClassificationEvaluator(aspects=["hate", "target"])
+    evaluator = ClassificationEvaluator(aspects=["is_hate_speech", "target_category"])
 
     pipeline = ClassificationPipeline(
         dataset=dataset,
