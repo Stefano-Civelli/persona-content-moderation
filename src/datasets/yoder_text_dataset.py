@@ -33,6 +33,7 @@ class isHateSpeech(str, Enum):
 
 
 # Identity categories (specific groups)
+# The one outputted by the model is the string on the right
 class IdentityTargetCategory(str, Enum):
     women = "women"
     black = "black"
@@ -41,7 +42,7 @@ class IdentityTargetCategory(str, Enum):
     asian = "asian"
     hispanic = "latino/hispanic"
     jews = "jews"
-    white = "white people"
+    white = "white"
     men = "men"
     christians = "christians"
     none = "none"
@@ -65,7 +66,8 @@ class YoderIdentityDataset(BaseDataset):
         is_hate_field: str = "hate",
         target_field: str = "grouping",
         fold: Optional[str] = None,
-        **additional_params: Any
+        target_group_size: Optional[int] = None,
+        **additional_params: Any,
     ):
         self.tokenizer = tokenizer
         self.prompts_file = prompts_file
@@ -76,6 +78,7 @@ class YoderIdentityDataset(BaseDataset):
         self.is_hate_field = is_hate_field
         self.target_field = target_field
         self.fold = fold
+        self.target_group_size = target_group_size
         self._load_prompts()
 
         super().__init__(data_path, max_samples, seed, **additional_params)
@@ -85,21 +88,38 @@ class YoderIdentityDataset(BaseDataset):
         for _, row in prompts_df.iterrows():
             self.prompts[row["persona_id"]] = (row["prompt"], row["persona_pos"])
         self.persona_ids = list(self.prompts.keys())
-       
 
     def load_dataset(self) -> None:
 
         with open(self.data_path, "r") as f:
             data = [json.loads(line) for line in f]
 
+        self.data_df = pd.DataFrame(data)
+
+        size_before_deduplication = self.data_df.shape[0]
+
+        # eliminate duplicated rows using fold and text columns
+        self.data_df = self.data_df.drop_duplicates(
+            subset=["fold", self.text_field], keep="first"
+        )
+        print(
+            f"Removed {size_before_deduplication - self.data_df.shape[0]} duplicate rows."
+        )
+
         if self.fold:
-            data = [item for item in data if item.get("fold") == self.fold]
+            self.data_df = self.data_df[self.data_df["fold"] == self.fold]
+
+        if self.target_group_size:
+            self.data_df = self.data_df[
+                self.data_df["target_groups"].apply(
+                    lambda x: len(x) == self.target_group_size
+                )
+            ]
 
         if self.max_samples:
-            random.seed(self.seed)
-            data = random.sample(data, min(self.max_samples, len(data)))
-
-        self.data_df = pd.DataFrame(data)
+            self.data_df = self.data_df.sample(
+                n=self.max_samples, random_state=self.seed, replace=False
+            )
 
     def __getitem__(self, idx: int) -> Tuple[Dict, Dict, str, Dict]:
         num_prompts = len(self.prompts)

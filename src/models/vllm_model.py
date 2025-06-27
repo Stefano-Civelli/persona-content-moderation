@@ -12,13 +12,12 @@ class VLLMModel(BaseModel):
     def setup_model(self) -> None:
         """Initialize VLLM with guided decoding."""
         set_random_seed(self.additional_params.get("seed", 22))
-
         # Initialize VLLM
         self.llm = LLM(
             model=self.model_id,
             tokenizer_mode="mistral" if "mistral" in self.model_id else "auto",
             trust_remote_code=True,
-            enforce_eager=True,
+            enforce_eager=self.additional_params.get("enforce_eager", False),
             dtype="auto",
             gpu_memory_utilization=0.95,
             tensor_parallel_size=1,
@@ -42,16 +41,6 @@ class VLLMModel(BaseModel):
 
     def process_batch(self, prompts: List[str]) -> List[str]:
         """Process a batch of prompts and return predictions."""
-        # # Apply chat template
-        # formatted_prompts = []
-        # for prompt in batch:
-        #     formatted_prompt = self.tokenizer.apply_chat_template(
-        #         [{"role": "user", "content": prompt}],
-        #         tokenize=False,
-        #         add_generation_prompt=True,
-        #     )
-        #     formatted_prompts.append(formatted_prompt)
-
         # Generate
         outputs = self.llm.generate(prompts, self.sampling_params)
 

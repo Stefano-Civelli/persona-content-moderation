@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 import os
 
+from src.datasets.subdata_text_dataset import SubdataTextDataset
 from src.datasets.yoder_text_parser import YoderLabelConverter, YoderPredictionParser
 from src.models.base import (
     BaseModel as ScriptBaseModel,
@@ -39,6 +40,7 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 class ClassificationPipeline:
@@ -88,6 +90,7 @@ class ClassificationPipeline:
             f"Processing {len(self.dataset)} items in batches of {self.batch_size}..."
         )
 
+        first_batch = True
         for (
             batch_prompts,
             batch_labels,
@@ -95,6 +98,14 @@ class ClassificationPipeline:
             batch_persona_ids,
             batch_persona_pos,
         ) in tqdm(dataloader):
+
+            if first_batch:
+                logger.debug(f"Batch prompts: {batch_prompts[:1]}")
+                logger.debug(f"Batch labels: {batch_labels[:1]}")
+                logger.debug(f"Batch item IDs: {batch_item_ids[:1]}")
+                logger.debug(f"Batch persona IDs: {batch_persona_ids[:1]}")
+                logger.debug(f"Batch persona positions: {batch_persona_pos[:1]}")
+                first_batch = False
 
             predictions = self.model.process_batch(batch_prompts)
 
@@ -135,16 +146,19 @@ def main():
     with open("config_text.yaml", "r") as f:
         config = yaml.safe_load(f)
 
+    MODEL = config["models"][config["model_id"]]
+    print(type(MODEL))
+
     # Process template strings in paths
     config["prompts_file"] = (
         config["prompts_file"]
         .replace("[DATASET]", "YODER")
-        .replace("[MODEL_NAME]", config["model_id"].split("/")[-1])
+        .replace("[MODEL_NAME]", MODEL.split("/")[-1])
     )
 
     config["output_path"] = (
         config["output_path"]
-        .replace("[MODEL_NAME]", config["model_id"].split("/")[-1])
+        .replace("[MODEL_NAME]", MODEL.split("/")[-1])
         .replace("[DATETIME]", pd.Timestamp.now().strftime("%Y%m%d_%H%M%S"))
     )
 
@@ -152,38 +166,44 @@ def main():
     os.makedirs(os.path.dirname(config["output_path"]), exist_ok=True)
 
     logger.info(f"Output path: {config['output_path']}")
-    logger.info(f"Using model: {config['model_id']}")
+    logger.info(f"Using model: {MODEL}")
 
     model = VLLMModel(
-        model_id=config["model_id"],
-        additional_params={
-            "seed": config["vllm_seed"],
-            "temperature": config["temperature"],
-            "top_p": config["top_p"],
-            "max_model_len": config["max_model_len"],
-            "max_num_seqs": config["max_num_seqs"],
-        },
+        model_id=MODEL,
+        seed=config["vllm_seed"],
+        temperature=config["temperature"],
+        top_p=config["top_p"],
+        max_model_len=config["max_model_len"],
+        max_num_seqs=config["max_num_seqs"],
+        enforce_eager=config["enforce_eager"],
     )
+    print("=" * 40)
+    print("========= Model setup complete =========")
+    print("=" * 40)
 
-    tokenizer = AutoTokenizer.from_pretrained(config["model_id"])
+    tokenizer = AutoTokenizer.from_pretrained(MODEL)
 
-    # TODO should be ok what is said below
-    # IMPORTANT: Ensure YoderIdentityDataset is modified to:
-    # 1. Return raw prompt content (not pre-formatted with chat template).
-    # 2. Return an item_id, e.g., str(item_idx) from its __getitem__.
-    # Example __getitem__ return: (raw_prompt_content, label_dict, item_id, persona_id, persona_pos)
     dataset = YoderIdentityDataset(
         data_path=config["data_path"],
         tokenizer=tokenizer,
         prompts_file=config["prompts_file"],
         max_samples=config["max_samples"],
         seed=config["dataset_seed"],
-        fold="test",
+        fold=config["fold"],
+        target_group_size=config["target_group_size"],
     )
+
+    # dataset = SubdataTextDataset(
+    #     data_path=config["data_path"],
+    #     tokenizer=tokenizer,
+    #     prompts_file=config["prompts_file"],
+    #     max_samples=config["max_samples"],
+    #     seed=config["dataset_seed"],
+    #     split="gender",
+    # )
 
     # print some debugging information
     logger.info(f"Dataset size: {len(dataset)}")
-    logger.info(f"Sample item: {dataset[0]}")  # Print first item for debugging
 
     parser = YoderPredictionParser()
     converter = YoderLabelConverter()

@@ -6,7 +6,12 @@ max_samples: null  # Set to a number to limit samples, or null for all
 output_path: "data/results/img_classification/[MODEL_NAME]/[DATETIME].json"
 
 # Model Configuration
-model_id: "HuggingFaceM4/Idefics3-8B-Llama3"
+models:
+  - "HuggingFaceM4/Idefics3-8B-Llama3"
+  - "Qwen/Qwen2.5-VL-7B-Instruct"
+  - "Qwen/Qwen2.5-VL-32B-Instruct"
+
+model_id: 0
 resolution_factor: 4
 max_new_tokens: 50
 

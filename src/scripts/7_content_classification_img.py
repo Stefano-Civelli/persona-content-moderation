@@ -208,10 +208,8 @@ def main():
     # ========== Create Objects ==========
     model = Idefics3Model(
         model_id=config["model_id"],
-        additional_params={
-            "resolution_factor": config["resolution_factor"],
-            "max_new_tokens": config["max_new_tokens"],
-        },
+        resolution_factor=config["resolution_factor"],
+        max_new_tokens=config["max_new_tokens"]
     )
 
     dataset = FacebookHatefulMemesDataset(

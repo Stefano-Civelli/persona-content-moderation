@@ -1,26 +1,16 @@
-# from enum import Enum
-# import random
-# from typing import Any, Dict, List, Optional, Tuple
-# import pandas as pd
-# from src.datasets.base import BaseDataset
-# from pydantic import BaseModel # Careful this is not my BaseModel, but the one from pydantic
-
-# class isHateSpeech(str, Enum):
-#     yes = "yes"
-#     no = "no"
+from enum import Enum
+import random
+from typing import Any, Dict, List, Optional, Tuple
+import pandas as pd
+from src.datasets.base import BaseDataset
+from pydantic import (
+    BaseModel,
+)  # Careful this is not my BaseModel, but the one from pydantic
 
 
-# class TargetCategory(str, Enum):
-#     age = "age"
-#     disabled = "disabled"
-#     gender = "gender"
-#     migration = "migration"
-#     origin = "origin"
-#     political = "political"
-#     race = "race"
-#     religion = "religion"
-#     sexuality = "sexuality"
-#     none = "none"
+class isHateSpeech(str, Enum):
+    true = "true"
+    false = "false"
 
 
 # class SpecificTarget(str, Enum):
@@ -46,115 +36,94 @@
 #     none = "none"
 
 
-# class ContentClassification(BaseModel): # Careful this is not my BaseModel, but the one from pydantic
-#     is_hate_speech: isHateSpeech
-#     target_category: TargetCategory
-#     specific_target: SpecificTarget
+class ContentClassification(
+    BaseModel
+):  # Careful this is not my BaseModel, but the one from pydantic
+    is_hate_speech: isHateSpeech
+    # specific_target: SpecificTarget
 
 
-# class HateSpeechTextDataset(BaseDataset):
-#     def __init__(
-#         self, 
-#         processor,  # Tokenizer for text models
-#         prompts_file: Optional[str] = None
-#     ):
-#         self.processor = processor
-#         self.prompts_file = prompts_file
-#         self.prompts = {}
-#         self.persona_ids = []
-        
-#         if prompts_file:
-#             self._load_prompts()
-        
-#         super().__init__(config)
-        
-#         # Calculate total items similar to vision dataset
-#         if self.prompts:
-#             self.total_items = len(self.items) * len(self.prompts)
-#         else:
-#             self.total_items = len(self.items)
-    
-#     def _load_prompts(self) -> None:
-#         """Load prompts from parquet file (similar to vision dataset)."""
-#         prompts_df = pd.read_parquet(self.prompts_file)
-        
-#         # Create a dictionary with persona_id as key and prompt as value
-#         for _, row in prompts_df.iterrows():
-#             self.prompts[row['persona_id']] = (row['prompt'], row.get('persona_pos', 'neutral'))
-#         self.persona_ids = list(self.prompts.keys())
-    
-#     def load_dataset(self) -> None:
-#         """Load text dataset from CSV."""
-#         df = pd.read_csv(self.data_path)
-        
-#         # Apply sampling if needed
-#         if self.max_samples:
-#             random.seed(self.seed)
-#             df = df.sample(n=min(self.max_samples, len(df)), random_state=self.seed)
-        
-#         for idx, row in df.iterrows():
-#             item_data = {
-#                 'text': row['text'],
-#                 'labels': {
-#                     'is_hate_speech': 'yes',  # All items in this dataset are hate speech
-#                     'target_category': row.get('category', 'none'),
-#                     'specific_target': row.get('target', 'none')
-#                 },
-#                 'item_id': f"text_{idx}"
-#             }
-#             self.items.append(item_data)
-    
-#     def __len__(self) -> int:
-#         return self.total_items
-    
-#     def __getitem__(self, idx: int) -> Tuple[Dict, Dict[str, Any], str, Dict[str, Any]]:
-#         """Get item with optional prompt variation (similar to vision dataset)."""
-#         if self.prompts:
-#             # Multi-prompt mode
-#             num_prompts = len(self.prompts)
-#             item_idx = idx // num_prompts
-#             prompt_idx = idx % num_prompts
-            
-#             item = self.items[item_idx]
-#             persona_id = self.persona_ids[prompt_idx]
-#             prompt_template, persona_pos = self.prompts[persona_id]
-            
-#             # Format the prompt with the text
-#             prompt = prompt_template.format(text=item['text'])
-            
-#             metadata = {
-#                 'persona_id': persona_id,
-#                 'persona_pos': persona_pos,
-#                 'text': item['text']
-#             }
-#         else:
-#             # Single prompt mode - use a default prompt
-#             item = self.items[idx]
-#             prompt = f"Classify the following text for hate speech: {item['text']}"
-#             metadata = {'text': item['text']}
-        
-#         # Prepare message in chat format
-#         message = {
-#             "role": "user",
-#             "content": prompt
-#         }
-        
-#         # Apply chat template
-#         prompt_text = self.processor.apply_chat_template(
-#             [message], 
-#             tokenize=False,
-#             add_generation_prompt=True
-#         )
-        
-#         # For text models, we return the prompt as a simple dict
-#         inputs = {"prompt": prompt_text}
-        
-#         return inputs, item['labels'], item['item_id'], metadata
+class SubdataTextDataset(BaseDataset):
+    def __init__(
+        self,
+        data_path: str,
+        tokenizer,
+        prompts_file: str,
+        max_samples: Optional[int] = None,
+        seed: int = 42,
+        text_field: str = "text",
+        split: Optional[str] = None,
+        **additional_params: Any,
+    ):
+        self.tokenizer = tokenizer
+        self.prompts_file = prompts_file
+        self.prompts = {}
+        self.persona_ids = []
+        self.data_df = None
+        self.text_field = text_field
+        self.split = split
+        self._load_prompts()
 
+        super().__init__(data_path, max_samples, seed, **additional_params)
 
-# def text_collate_fn(
-#     batch: List[Tuple[str, Dict, str, Dict]],
-# ) -> Tuple[List[str], List[Dict], List[str], List[Dict]]:
-#     """Custom collate function for text data."""
-#     prompts, labels, ids, metadata = zip(*batch)
-#     return list(prompts), list(labels), list(ids), list(metadata)
+    def _load_prompts(self) -> None:
+        prompts_df = pd.read_parquet(self.prompts_file)
+        for _, row in prompts_df.iterrows():
+            self.prompts[row["persona_id"]] = (row["prompt"], row["persona_pos"])
+        self.persona_ids = list(self.prompts.keys())
+
+    def load_dataset(self) -> None:
+        """Load text dataset from CSV."""
+        df = pd.read_csv(self.data_path)
+
+        # Apply sampling if needed
+        if self.max_samples:
+            random.seed(self.seed)
+            df = df.sample(n=min(self.max_samples, len(df)), random_state=self.seed)
+
+        if self.split:
+            df = df[df["category"] == self.split]
+
+        # set every label to {is_hate_speech: True}
+        df["labels"] = {"is_hate_speech": "true"}
+        df["item_id"] = df.index
+
+        self.data_df = df
+
+        # for idx, row in df.iterrows():
+        #     item_data = {
+        #         "text": row[self.text_field],
+        #         "labels": {
+        #             "is_hate_speech": "true",  # All items in this dataset are hate speech
+        #             "target_category": row.get("category", "none"),
+        #             "specific_target": row.get("target", "none"),
+        #         },
+        #         "item_id": f"text_{idx}",
+        #     }
+        #     self.items.append(item_data)
+
+        # self.data_df = pd.DataFrame(self.items)
+
+    def __getitem__(self, idx: int) -> Tuple[Dict, Dict, str, Dict]:
+        num_prompts = len(self.prompts)
+        item_idx = idx // num_prompts
+        prompt_idx = idx % num_prompts
+
+        item = self.data_df.iloc[item_idx]
+        persona_id = self.persona_ids[prompt_idx]
+        prompt, persona_pos = self.prompts[persona_id]
+
+        prompt = prompt.replace("[TEXT]", item[self.text_field])
+
+        # Prepare message
+        message = {"role": "user", "content": prompt}
+
+        # Process with model tokenizer
+        prompt_text = self.tokenizer.apply_chat_template(
+            [message], tokenize=False, add_generation_prompt=True
+        )
+
+        return prompt_text, item["labels"], item["item_id"], persona_id, persona_pos
+
+    def __len__(self) -> int:
+        return self.data_df.shape[0] * len(self.prompts)

@@ -4,6 +4,8 @@ import seaborn as sns
 import pandas as pd
 import numpy as np
 from sklearn.metrics import cohen_kappa_score
+import yaml
+import os
 
 DATASET_NAME = None
 
@@ -33,6 +35,22 @@ POSSIBLE_VALUES = {
     "MMHS150K": {
         "harmful": [0, 1],
         "target_group": ["Racist", "Sexist", "Homophobe", "Religion", "OtherHate"],
+    },
+    "YODER": {
+        "harmful": [0, 1],
+        "target_group": [
+            "women",
+            "black",
+            "lgbtq+",
+            "muslims/arabic",
+            "asian",
+            "latino/hispanic",
+            "jews",
+            "white",
+            "men",
+            "christians",
+            "none",
+        ],
     },
 }
 
@@ -65,13 +83,11 @@ def plot_agreement_matrix(
     title=None,
 ):
 
-    # Convert DataFrame to numpy array
     agreement_matrix = agreement_df.to_numpy()
 
     # Create a mask for the upper triangle
     mask = np.triu(np.ones_like(agreement_matrix), k=1)
 
-    # Create figure and axis with higher DPI
     fig, ax = plt.subplots(figsize=figsize, dpi=150)
 
     # If vmin/vmax not provided, set them based on data
@@ -145,7 +161,7 @@ def plot_agreement_matrix(
 
 def get_positions(data):
     # Determine position types based on classification path
-    is_left_right = "left_right" in data["metadata"]["classification_prompts_path"]
+    is_left_right = "left_right" in data["metadata"]["config"]["prompts_file"]
 
     if is_left_right:
         positions = ["leftmost", "rightmost"]
@@ -256,34 +272,56 @@ def compute_intra_agreement(df, pos, pairwise_results):
 def main():
     global DATASET_NAME
 
-    file_name = "predictions_20250109_095330"  # predictions_20250108_172334
-    print(f"Loading data from {file_name}")
+    # label names
+    is_harmful_label = "is_hate_speech"
+    target_group_label = "target_category"  # "target_group"
+    attack_method_label = None  # "attack_method"
+
+    with open("config_text.yaml", "r") as f:
+        config = yaml.safe_load(f)
+
+    timestamp = "20250625_162048"
+
+    config["output_path"] = (
+        config["output_path"]
+        .replace("[MODEL_NAME]", config["model_id"].split("/")[-1])
+        .replace("[DATETIME]", timestamp)
+    )
+
+    print(f'Loading data from {config["output_path"]}')
 
     try:
-        with open(f"../../results/{file_name}.json", "r") as f:
+        with open(config["output_path"], "r") as f:
             data = json.load(f)
     except Exception as e:
         print(f"Error loading file: {str(e)}")
         return
 
-    DATASET_NAME = data["metadata"]["data_path"].split("/")[-1]
+    DATASET_NAME = data["metadata"]["config"]["data_path"].split("/")[-1]
     print(f"Dataset: {DATASET_NAME}")
 
-    predictions = data["predictions"]
+    predictions = data["results"]
     df = pd.DataFrame(predictions)
 
+    print(df.columns)
+
     print(f"\nDataset size: {len(df)} rows")
-    print(f"Unique images: {df['image_name'].nunique()}")
+    print(f"Unique images: {df['item_id'].nunique()}")
     print(f"Positions present: {df['persona_pos'].unique()}")
     print(f"Personas present: {df['persona_id'].nunique()}")
 
     # Extract predicted labels
-    df["harmful"] = df["predicted_labels"].apply(lambda x: int(x["harmful"]))
+    df["harmful"] = df["predicted_labels"].apply(lambda x: int(x[is_harmful_label]))
     if DATASET_NAME == "facebook-hateful-memes":
         df["target_group"] = df["predicted_labels"].apply(lambda x: x["target_group"])
         df["attack_method"] = df["predicted_labels"].apply(lambda x: x["attack_method"])
     elif DATASET_NAME == "MMHS150K":
         df["target_group"] = df["predicted_labels"].apply(lambda x: x["hate_type"])
+    elif DATASET_NAME == "identity_hate_corpora.jsonl":
+        DATASET_NAME = "YODER"
+        df["target_group"] = df["predicted_labels"].apply(
+            lambda x: x[target_group_label]
+        )
     else:
         print("Error: Dataset not supported")
         return
@@ -318,10 +356,14 @@ def main():
     # Create DataFrame for better formatting
     agreement_df = pd.DataFrame(agreement_matrix, index=positions, columns=positions)
 
-    plot_path = f"../../results/agreement_matrix/agreement_matrix_{file_name}.png"
-    pairwise_path = (
-        f"../../results/agreement_matrix/pairwise_agreements_{file_name}.csv"
-    )
+    plot_path = f"data/results/agreement/agreement_matrix_{timestamp}.png"
+    pairwise_path = f"data/results/agreement/pairwise_agreements_{timestamp}.csv"
+
+    # Get the directory name from the path
+    output_dir = os.path.dirname(plot_path)
+    # Create the directory if it doesn't already exist
+    os.makedirs(output_dir, exist_ok=True)
+
     plot_agreement_matrix(agreement_df, positions, plot_path)
     save_pairwise_comparisons(pairwise_results, pairwise_path)
 
