@@ -11,6 +11,7 @@ import pandas as pd
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 import os
+import argparse
 
 from src.datasets.subdata_text_dataset import SubdataTextDataset
 from src.datasets.yoder_text_parser import YoderLabelConverter, YoderPredictionParser
@@ -31,7 +32,7 @@ from src.datasets.yoder_text_dataset import (
     YoderIdentityDataset,
     map_grouping,  # If needed by converter/parser
 )
-from utils.util import ClassificationEvaluator, save_results
+from utils.util import ClassificationEvaluator, save_results, load_config, get_task_config, get_model_config
 from transformers import AutoTokenizer
 
 
@@ -139,43 +140,38 @@ class ClassificationPipeline:
                 logger.info(f"  {metric_name}: {value:.4f}")
 
 
+
+
 # ==================== Main ====================
 def main():
-    # multiprocessing.set_start_method("spawn", force=True)
+    # Set up argument parser
+    parser = argparse.ArgumentParser(description='Run content classification pipeline')
+    parser.add_argument('--task_type', type=str, default='text', help='Type of task')
+    parser.add_argument('--model', type=str, default='meta-llama/Llama-3.1-8B-Instruct', help='Model name/path')
+    args = parser.parse_args()
 
-    with open("config_text.yaml", "r") as f:
-        config = yaml.safe_load(f)
+    config = load_config("models_config.yaml")
+    task_config = config[f"{args.task_type}_config"]
+    model_config = get_model_config(task_config, args.model)
+    if not model_config:
+        logger.error(f"Model '{args.model}' not found in task '{args.task_type}'.")
+        return
+    
+    MODEL = args.model
+    prompts_file = task_config["prompts_file"].replace("[DATASET]", "YODER").replace("[MODEL_NAME]", MODEL.split("/")[-1])
+    output_path = task_config["output_path"].replace("[MODEL_NAME]", MODEL.split("/")[-1]).replace("[DATETIME]", pd.Timestamp.now().strftime("%Y%m%d_%H%M%S"))
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-    MODEL = config["models"][config["model_id"]]
-    print(type(MODEL))
-
-    # Process template strings in paths
-    config["prompts_file"] = (
-        config["prompts_file"]
-        .replace("[DATASET]", "YODER")
-        .replace("[MODEL_NAME]", MODEL.split("/")[-1])
-    )
-
-    config["output_path"] = (
-        config["output_path"]
-        .replace("[MODEL_NAME]", MODEL.split("/")[-1])
-        .replace("[DATETIME]", pd.Timestamp.now().strftime("%Y%m%d_%H%M%S"))
-    )
-
-    # Ensure output directory exists
-    os.makedirs(os.path.dirname(config["output_path"]), exist_ok=True)
-
-    logger.info(f"Output path: {config['output_path']}")
+    logger.info(f"Output path: {output_path}")
     logger.info(f"Using model: {MODEL}")
 
     model = VLLMModel(
         model_id=MODEL,
-        seed=config["vllm_seed"],
-        temperature=config["temperature"],
-        top_p=config["top_p"],
-        max_model_len=config["max_model_len"],
-        max_num_seqs=config["max_num_seqs"],
-        enforce_eager=config["enforce_eager"],
+        seed=model_config["vllm_seed"],
+        temperature=model_config["temperature"],
+        max_model_len=model_config["max_model_len"],
+        max_num_seqs=model_config["max_num_seqs"],
+        enforce_eager=model_config["enforce_eager"],
     )
     print("=" * 40)
     print("========= Model setup complete =========")
@@ -184,13 +180,13 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(MODEL)
 
     dataset = YoderIdentityDataset(
-        data_path=config["data_path"],
+        data_path=task_config["data_path"],
         tokenizer=tokenizer,
-        prompts_file=config["prompts_file"],
-        max_samples=config["max_samples"],
-        seed=config["dataset_seed"],
-        fold=config["fold"],
-        target_group_size=config["target_group_size"],
+        prompts_file=prompts_file,
+        max_samples=task_config["max_samples"],
+        seed=task_config["dataset_seed"],
+        fold=task_config["fold"],
+        target_group_size=task_config["target_group_size"],
     )
 
     # dataset = SubdataTextDataset(
@@ -215,8 +211,8 @@ def main():
         parser=parser,
         converter=converter,
         evaluator=evaluator,
-        batch_size=config["batch_size"],
-        num_workers=config["num_workers"],
+        batch_size=task_config["batch_size"],
+        num_workers=task_config["num_workers"],
     )
 
     results, metrics = pipeline.run()
@@ -225,14 +221,15 @@ def main():
     pipeline._log_metrics(metrics)
 
     metadata = {
-        "config": config,
+        "task_config": task_config,
+        "model_config": model_config,
         "timestamp": pd.Timestamp.now().isoformat(),
         "model_class": model.__class__.__name__,
         "dataset_class": dataset.__class__.__name__,
     }
 
-    save_results(results, metrics, config["output_path"], metadata)
-    logger.info(f"Results saved to {config['output_path']}")
+    save_results(results, metrics, output_path, metadata)
+    logger.info(f"Results saved to {output_path}")
 
     logger.info("Pipeline completed successfully!")
     if hasattr(model, "cleanup"):

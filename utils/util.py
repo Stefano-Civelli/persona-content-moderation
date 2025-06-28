@@ -7,6 +7,10 @@ from matplotlib import pyplot as plt
 import pickle
 from pathlib import Path
 from sklearn.metrics import classification_report
+import logging
+import yaml
+
+logger = logging.getLogger(__name__)
 
 
 def get_gpu_memory_info() -> str:
@@ -197,3 +201,29 @@ if __name__ == "__main__":
         tick_size=18,
         annot_size=22,
     )
+
+
+
+# ================ YAML UTILS ================
+
+def load_config(config_path: str = "models_config.yaml") -> Dict[str, Any]:
+    """Load the main configuration file."""
+    with open(config_path, "r") as f:
+        return yaml.safe_load(f)
+
+
+def get_task_config(config: Dict[str, Any], task_type: str):
+    task_key = f"{task_type}_config"
+    if task_key in config:
+        return config[task_key]
+    return None
+
+
+def get_model_config(
+    task_config: Dict[str, Any], model_name: str):
+    for model_conf in task_config.get("models", []):
+        if model_conf["name"] == model_name:
+            return model_conf
+    return None
+
+# ================ YAML UTILS ================
