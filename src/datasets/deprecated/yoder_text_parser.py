@@ -2,10 +2,7 @@ import json
 from typing import Dict, Any
 import logging
 
-from src.datasets.base import (
-    PredictionParser,
-    LabelConverter,
-)
+from src.datasets.base import PredictionParser,
 
 # Assuming YoderIdentityDataset and IdentityContentClassification are in yoder_text_dataset
 from src.datasets.yoder_text_dataset import (
@@ -49,13 +46,4 @@ class YoderPredictionParser(PredictionParser):
             }
 
 
-class YoderLabelConverter(LabelConverter):
-    """Converts Yoder dataset labels to a consistent dictionary format for evaluation."""
 
-    def convert(self, label: Dict[str, Any]) -> Dict[str, Any]:
-        # Dataset label format: {"hate": "yes"/"no", "target": "category_string"}
-        # Output format for evaluation: {"is_hate_speech": "yes/no", "target_category": "category_string"}
-        return {
-            "is_hate_speech": label.get("hate", isHateSpeech.false.value),
-            "target_category": label.get("target", IdentityTargetCategory.none.value),
-        }

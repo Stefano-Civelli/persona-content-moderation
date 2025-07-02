@@ -1,4 +1,3 @@
-import torch
 import json
 from typing import List, Dict, Any, Optional
 import numpy as np
@@ -11,15 +10,6 @@ import logging
 import yaml
 
 logger = logging.getLogger(__name__)
-
-
-def get_gpu_memory_info() -> str:
-    """Get GPU memory information."""
-    if torch.cuda.is_available():
-        allocated = torch.cuda.memory_allocated() / 1024**3
-        reserved = torch.cuda.memory_reserved() / 1024**3
-        return f"Allocated: {allocated:.2f}GB, Reserved: {reserved:.2f}GB"
-    return "No GPU available"
 
 
 # def save_results(
@@ -63,7 +53,7 @@ def save_results(
                 "persona_pos": r["persona_pos"],
             }
             for r in results
-        ]
+        ],
     }
 
     output_path = Path(output_path)
@@ -99,6 +89,15 @@ class ClassificationEvaluator:
                 "accuracy": report["accuracy"],
                 "macro_f1": report["macro avg"]["f1-score"],
                 "weighted_f1": report["weighted avg"]["f1-score"],
+            }
+
+            y_true_combined = [tuple(r["true_labels"].values()) for r in results]
+            y_pred_combined = [tuple(r["predicted_labels"].values()) for r in results]
+            
+            correct_count = sum(1 for true, pred in zip(y_true_combined, y_pred_combined) if true == pred)
+            
+            metrics["overall"] = {
+                "exact_match_ratio": correct_count / len(results) if results else 0
             }
 
         return metrics
@@ -203,13 +202,18 @@ if __name__ == "__main__":
     )
 
 
-
 # ================ YAML UTILS ================
 
-def load_config(config_path: str = "models_config.yaml") -> Dict[str, Any]:
+
+def load_config(config_path="models_config.yaml", prompts_path="prompts.yaml"):
     """Load the main configuration file."""
     with open(config_path, "r") as f:
-        return yaml.safe_load(f)
+        config = yaml.safe_load(f)
+    with open(prompts_path, "r") as f:
+        prompts = yaml.safe_load(f)
+    return config, prompts
+
+    
 
 
 def get_task_config(config: Dict[str, Any], task_type: str):
@@ -219,11 +223,29 @@ def get_task_config(config: Dict[str, Any], task_type: str):
     return None
 
 
-def get_model_config(
-    task_config: Dict[str, Any], model_name: str):
+def get_model_config(task_config: Dict[str, Any], model_name: str):
+    cleaned_task_config = {k: v for k, v in task_config.items() if k != "models"}
     for model_conf in task_config.get("models", []):
         if model_conf["name"] == model_name:
-            return model_conf
-    return None
+            return model_conf, cleaned_task_config
+    return None, None
+
+
+def get_all_model_names(config_path: str = "models_config.yaml") -> List[str]:
+    with open(config_path, "r") as f:
+        config = yaml.safe_load(f)
+
+    vision_model_names = [
+        model["name"] for model in config.get("vision_config", {}).get("models", [])
+    ]
+    text_model_names = [
+        model["name"] for model in config.get("text_config", {}).get("models", [])
+    ]
+    return vision_model_names + text_model_names
+
 
 # ================ YAML UTILS ================
+
+def clean_leading_trailing_newline(s: str) -> str:
+    """Remove leading and trailing newlines from a string."""
+    return s.strip("\n") if isinstance(s, str) else s

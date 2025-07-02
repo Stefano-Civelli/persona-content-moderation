@@ -1,5 +1,5 @@
 from typing import Any, Dict
-from src.datasets.base import PredictionParser, LabelConverter
+from src.datasets.base import PredictionParser
 
 
 class HatefulMemesPredictionParser(PredictionParser):
@@ -18,7 +18,7 @@ class HatefulMemesPredictionParser(PredictionParser):
 
     def parse(self, prediction: str) -> Dict[str, Any]:
         """Parse Idefics3 prediction for hateful memes."""
-        labels = {"harmful": False, "target_group": "none", "attack_method": "none"}
+        labels = {"is_hate_speech": False, "target_group": "none", "attack_method": "none"}
 
         pred = prediction.strip().rstrip(".")
 
@@ -26,7 +26,7 @@ class HatefulMemesPredictionParser(PredictionParser):
             return labels
 
         if pred.startswith("HARMFUL"):
-            labels["harmful"] = True
+            labels["is_hate_speech"] = True
 
             for line in pred.split("\n"):
                 line = line.strip()
@@ -48,35 +48,4 @@ class HatefulMemesPredictionParser(PredictionParser):
         return labels
 
 
-class HatefulMemesLabelConverter(LabelConverter):
-    """Label converter for hateful memes dataset."""
 
-    def convert(self, raw_labels: Dict) -> Dict[str, Any]:
-        """Convert raw labels to standardized format."""
-        hate_labels = (
-            raw_labels["hate"][0][0]
-            if raw_labels["hate"] and raw_labels["hate"][0]
-            else "not_hateful"
-        )
-        pc_labels = (
-            raw_labels["pc"][0][0]
-            if raw_labels["pc"] and raw_labels["pc"][0]
-            else "pc_empty"
-        )
-        attack_labels = (
-            raw_labels["attack"][0][0]
-            if raw_labels["attack"] and raw_labels["attack"][0]
-            else "attack_empty"
-        )
-
-        return {
-            "harmful": hate_labels != "not_hateful",
-            "target_group": (
-                pc_labels.replace("pc_", "") if pc_labels != "pc_empty" else "none"
-            ),
-            "attack_method": (
-                attack_labels.replace("attack_", "")
-                if attack_labels != "attack_empty"
-                else "none"
-            ),
-        }

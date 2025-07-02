@@ -5,6 +5,12 @@ import torch
 from typing import List, Any
 from vllm.model_executor.utils import set_random_seed
 from src.datasets.yoder_text_dataset import IdentityContentClassification
+import logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
 
 class VLLMModel(BaseModel):
     """VLLM model implementation for text classification."""
@@ -12,29 +18,41 @@ class VLLMModel(BaseModel):
     def setup_model(self) -> None:
         """Initialize VLLM with guided decoding."""
         set_random_seed(self.additional_params.get("seed", 22))
-        # Initialize VLLM
-        self.llm = LLM(
-            model=self.model_id,
-            tokenizer_mode="mistral" if "mistral" in self.model_id else "auto",
-            trust_remote_code=True,
-            enforce_eager=self.additional_params.get("enforce_eager", False),
-            dtype="auto",
-            gpu_memory_utilization=0.95,
-            tensor_parallel_size=1,
-            enable_prefix_caching=True,
-            disable_log_stats=True,
-            max_model_len=self.additional_params.get("max_model_len", 400),
-            max_num_seqs=self.additional_params.get("max_num_seqs", 120)
-        )
+        HF_CACHE = '/scratch/user/uqscivel/HF-CACHE'
+
+        base_llm_kwargs = {
+            "tokenizer_mode": "mistral" if "mistral" in self.model_id else "auto",
+            "trust_remote_code": True,
+            "enforce_eager": False,
+            "dtype": "auto",
+            "gpu_memory_utilization": 0.95,
+            "tensor_parallel_size": 1,
+            "enable_prefix_caching": True,
+            "disable_log_stats": True,
+            "download_dir": HF_CACHE,
+        }
+
+        final_llm_kwargs = {
+            "model": self.model_id,
+            **base_llm_kwargs,
+            **self.additional_params
+        }
+
+        logger.info("=" * 70)
+        logger.info("VLLM Parameters:")
+        logger.info(final_llm_kwargs)
+        logger.info("=" * 70 + "\n")
+
+        final_llm_kwargs.pop("seed", None)
+        final_llm_kwargs.pop("max_tokens", None)
+        self.llm = LLM(**final_llm_kwargs)
 
         # Set up guided decoding for structured output
         self.json_schema = IdentityContentClassification.model_json_schema()
         self.guided_decoding_params = GuidedDecodingParams(json=self.json_schema)
-
-        # Sampling parameters
         self.sampling_params = SamplingParams(
-            temperature=self.additional_params.get("temperature", 0.0),
-            top_p=self.additional_params.get("top_p", 1.0),
+            temperature=self.temperature,
+            top_p=self.top_p,
             max_tokens=self.additional_params.get("max_tokens", 512),
             guided_decoding=self.guided_decoding_params,
         )

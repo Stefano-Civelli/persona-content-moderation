@@ -1,6 +1,6 @@
 from enum import Enum
 import random
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 import pandas as pd
 from src.datasets.base import BaseDataset
 from pydantic import (
@@ -50,27 +50,29 @@ class SubdataTextDataset(BaseDataset):
         tokenizer,
         prompts_file: str,
         max_samples: Optional[int] = None,
+        extreme_pos_personas_path: Optional[str] = None,
+        prompt_template: Optional[str] = None,
         seed: int = 42,
         text_field: str = "text",
         split: Optional[str] = None,
         **additional_params: Any,
     ):
         self.tokenizer = tokenizer
-        self.prompts_file = prompts_file
         self.prompts = {}
         self.persona_ids = []
         self.data_df = None
         self.text_field = text_field
         self.split = split
-        self._load_prompts()
 
-        super().__init__(data_path, max_samples, seed, **additional_params)
-
-    def _load_prompts(self) -> None:
-        prompts_df = pd.read_parquet(self.prompts_file)
-        for _, row in prompts_df.iterrows():
-            self.prompts[row["persona_id"]] = (row["prompt"], row["persona_pos"])
-        self.persona_ids = list(self.prompts.keys())
+        super().__init__(
+            data_path,
+            prompts_file,
+            max_samples,
+            extreme_pos_personas_path,
+            prompt_template,
+            seed,
+            **additional_params,
+        )
 
     def load_dataset(self) -> None:
         """Load text dataset from CSV."""
@@ -127,3 +129,7 @@ class SubdataTextDataset(BaseDataset):
 
     def __len__(self) -> int:
         return self.data_df.shape[0] * len(self.prompts)
+    
+    def convert_true_label(self, raw_label):
+        return raw_label
+

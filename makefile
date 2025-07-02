@@ -1,18 +1,4 @@
-ENV_NAME = torch
-PYTHON = conda run -n $(ENV_NAME) python
-
-.PHONY: help setup install activate run test lint format clean run_script
-
-help:
-	@echo "Common commands:"
-	@echo "  make setup     - Create conda env and install pip + deps"
-	@echo "  make install   - Re-install pip deps (inside env)"
-	@echo "  make run       - Run the main script"
-	@echo "  make run_script script=<name> - Run a given script"
-	@echo "  make test      - Run tests with pytest"
-	@echo "  make lint      - Run flake8 and black check"
-	@echo "  make format    - Format code with black"
-	@echo "  make clean     - Remove __pycache__, logs, etc."
+ENV_NAME = vllm08
 
 setup:
 	conda create -y -n $(ENV_NAME) python=3.11
@@ -21,7 +7,13 @@ setup:
 install:
 	conda run -n $(ENV_NAME) pip install -r requirements.txt
 
-run:
+install_nightly_vllm:
+	pip install -U vllm --pre --extra-index-url https://wheels.vllm.ai/nightly
+
+run_vision:
+	python -m src.scripts.7_content_classification_img_new
+
+run_text:
 	python -m src.scripts.8_content_classification_text
 
 run_script:

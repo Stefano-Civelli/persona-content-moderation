@@ -8,21 +8,16 @@ import torch
 import pandas as pd
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-
+from src.models.vllm_model import VLLMModel
 
 from src.models.base import BaseModel
 from src.datasets.base import (
     BaseDataset,
     PredictionParser,
-    LabelConverter,
-)
-from src.datasets.facebook_hateful_memes_dataset import FacebookHatefulMemesDataset
-from src.datasets.facebook_hateful_memes_parser import (
-    HatefulMemesPredictionParser,
-    HatefulMemesLabelConverter,
+
 )
 from src.models.vision_model import Idefics3Model
-from utils.util import ClassificationEvaluator, get_gpu_memory_info, save_results
+from utils.util import ClassificationEvaluator, save_results
 
 import os
 
@@ -149,7 +144,9 @@ class ClassificationPipeline:
             f"Processing {len(self.dataset)} items in batches of {self.batch_size}..."
         )
 
-        for batch_inputs, batch_labels, item_ids, persona_ids, persona_pos in tqdm(dataloader):
+        for batch_inputs, batch_labels, item_ids, persona_ids, persona_pos in tqdm(
+            dataloader
+        ):
             predictions = self.model.process_batch(batch_inputs)
 
             for idx, pred in enumerate(predictions):
@@ -188,28 +185,52 @@ class ClassificationPipeline:
 
 # ==================== Main Entry Point ====================
 
+
 def main():
     """Main execution function."""
 
-    with open("config_img.yaml", "r") as f:
+    with open("config_text.yaml", "r") as f:
         config = yaml.safe_load(f)
 
-    # Log configuration
-    logger.info("Starting classification pipeline...")
-    logger.info(f"GPU State: {get_gpu_memory_info()}")
+    with open("models.yaml", "r") as f:
+        models = yaml.safe_load(f)
 
-    config["output_path"] = config["output_path"].replace(
-        "[MODEL_NAME]", config["model_id"].split("/")[-1]
-    ).replace("[DATETIME]", pd.Timestamp.now().strftime("%Y%m%d_%H%M%S"))
+    MODEL = models["text_models"][config["model_id"]]
+
+    config["prompts_file"] = (
+        config["prompts_file"]
+        .replace("[DATASET]", "YODER")
+        .replace("[MODEL_NAME]", MODEL.split("/")[-1])
+    )
+
+    config["output_path"] = (
+        config["output_path"]
+        .replace("[MODEL_NAME]", MODEL.split("/")[-1])
+        .replace("[DATETIME]", pd.Timestamp.now().strftime("%Y%m%d_%H%M%S"))
+    )
+
+    # Ensure output directory exists
+    os.makedirs(os.path.dirname(config["output_path"]), exist_ok=True)
 
     logger.info(f"Output path: {config['output_path']}")
     logger.info(f"Using model: {config['model_id']}")
 
     # ========== Create Objects ==========
-    model = Idefics3Model(
-        model_id=config["model_id"],
-        resolution_factor=config["resolution_factor"],
-        max_new_tokens=config["max_new_tokens"]
+
+    # model = Idefics3Model(
+    #     model_id=config["model_id"],
+    #     resolution_factor=config["resolution_factor"],
+    #     max_new_tokens=config["max_new_tokens"]
+    # )
+
+    model = VLLMModel(
+        model_id=MODEL,
+        seed=config["vllm_seed"],
+        temperature=config["temperature"],
+        top_p=config["top_p"],
+        max_model_len=config["max_model_len"],
+        max_num_seqs=config["max_num_seqs"],
+        enforce_eager=config["enforce_eager"],
     )
 
     dataset = FacebookHatefulMemesDataset(
@@ -219,6 +240,7 @@ def main():
         config["prompts_file"],
         config["max_samples"],
     )
+
     # for predicted labels
     parser = HatefulMemesPredictionParser()
     # for true labels

@@ -11,11 +11,16 @@ class BaseModel(ABC):
         model_id: str,
         device: str = "cuda" if torch.cuda.is_available() else "cpu",
         dtype: torch.dtype = torch.bfloat16,
+        temperature: float = 0.0,
+        top_p: float = 1.0,
+
         **additional_params: Any
     ):
         self.model_id = model_id
         self.device = device
         self.dtype = dtype
+        self.temperature = temperature
+        self.top_p = top_p
         self.additional_params = additional_params
         self.setup_model()
 

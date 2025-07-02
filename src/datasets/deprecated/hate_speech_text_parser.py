@@ -1,6 +1,6 @@
 import json
 from typing import Any, Dict
-from src.datasets.base import PredictionParser, LabelConverter
+from src.datasets.base import PredictionParser
 from datasets.subdata_text_dataset import ContentClassification
 
 class HateSpeechJsonParser(PredictionParser):
@@ -29,11 +29,3 @@ class HateSpeechJsonParser(PredictionParser):
                 "target_category": "none",
                 "specific_target": "none"
             }
-        
-
-class HateSpeechLabelConverter(LabelConverter):
-    """Label converter for hate speech dataset - labels are already in correct format."""
-    
-    def convert(self, raw_labels: Dict[str, Any]) -> Dict[str, Any]:
-        """Pass through - labels are already in the correct format."""
-        return raw_labels

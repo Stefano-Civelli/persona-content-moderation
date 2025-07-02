@@ -1,10 +1,11 @@
 from enum import Enum
-import random
 import json
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 import pandas as pd
 from src.datasets.base import BaseDataset
 from pydantic import BaseModel
+
+
 
 
 def map_grouping(grouping: str) -> str:
@@ -59,8 +60,10 @@ class YoderIdentityDataset(BaseDataset):
         self,
         data_path: str,
         tokenizer,
-        prompts_file: str,
+        prompts_file: Optional[str] = None,
         max_samples: Optional[int] = None,
+        extreme_pos_personas_path: Optional[str] = None,
+        prompt_template: Optional[str] = None,
         seed: int = 42,
         text_field: str = "text",
         is_hate_field: str = "hate",
@@ -70,7 +73,6 @@ class YoderIdentityDataset(BaseDataset):
         **additional_params: Any,
     ):
         self.tokenizer = tokenizer
-        self.prompts_file = prompts_file
         self.prompts = {}
         self.persona_ids = []
         self.data_df = None
@@ -79,15 +81,16 @@ class YoderIdentityDataset(BaseDataset):
         self.target_field = target_field
         self.fold = fold
         self.target_group_size = target_group_size
-        self._load_prompts()
 
-        super().__init__(data_path, max_samples, seed, **additional_params)
-
-    def _load_prompts(self) -> None:
-        prompts_df = pd.read_parquet(self.prompts_file)
-        for _, row in prompts_df.iterrows():
-            self.prompts[row["persona_id"]] = (row["prompt"], row["persona_pos"])
-        self.persona_ids = list(self.prompts.keys())
+        super().__init__(
+            data_path,
+            prompts_file,
+            max_samples,
+            extreme_pos_personas_path,
+            prompt_template,
+            seed,
+            **additional_params,
+        )
 
     def load_dataset(self) -> None:
 
@@ -148,3 +151,13 @@ class YoderIdentityDataset(BaseDataset):
 
     def __len__(self) -> int:
         return self.data_df.shape[0] * len(self.prompts)
+    
+
+    def convert_true_label(self, raw_label):
+        # Dataset label format: {"hate": "yes"/"no", "target": "category_string"}
+        # Output format for evaluation: {"is_hate_speech": "yes/no", "target_category": "category_string"}
+        return {
+            "is_hate_speech": raw_label.get("hate", isHateSpeech.false.value),
+            "target_category": raw_label.get("target", IdentityTargetCategory.none.value),
+        }
+

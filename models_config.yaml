@@ -1,13 +1,13 @@
-
-
 # Vision Task Configuration
 vision_config:
   data_path: "data/raw/facebook-hateful-memes"
+  dataset_name: "facebook_hateful_memes"
   labels_relative_location: "fine_grained_labels/dev_unseen.jsonl"
-  prompts_file: "data/processed/img_classification_prompts.pqt"
+  #prompts_file: "data/processed/img_classification_prompts.pqt"
+  extreme_pos_path: "data/results/extreme_pos_personas/[MODEL_NAME]/[TYPE].pkl"
   max_samples: null
   output_path: "data/results/img_classification/[MODEL_NAME]/[DATETIME].json"
-  batch_size: 2
+  batch_size: 2000
   num_workers: 10
   dataset_seed: 22
 
@@ -15,33 +15,35 @@ vision_config:
     - name: "HuggingFaceM4/Idefics3-8B-Llama3"
       vllm_seed: 22
       temperature: 0.0
-      max_model_len: 2048 # Common context for Idefics models, can be adjusted
-      max_num_seqs: 8 # Example value, adjust based on GPU memory
+      max_model_len: 2048  #Limits Context Window (8192 suggested default for all models but might be too big for what I need)
+      max_num_seqs: 1000    #Number of concurrent requests in a batch. Keep it higher than the number shown by vllm
       enforce_eager: False
       resolution_factor: 4 # Idefics3 often uses a resolution factor, e.g., N=4 for 364x364 images
-      max_new_tokens: 100 # Adjust based on expected output length
+      max_tokens: 150 # Output length
     - name: "Qwen/Qwen2.5-VL-7B-Instruct"
       vllm_seed: 22
       temperature: 0.0
-      max_model_len: 1024 # Qwen VL models often have large contexts, 128k mentioned for text, assuming generous for VL. Adjust as needed.
-      max_num_seqs: 16
+      max_model_len: 2048 
+      max_num_seqs: 500
       enforce_eager: False
       resolution_factor: null # Qwen VL models use min_pixels/max_pixels or exact dimensions
-      max_new_tokens: 150
+      max_tokens: 150
     - name: "Qwen/Qwen2.5-VL-32B-Instruct"
       vllm_seed: 22
       temperature: 0.0
-      max_model_len: 1536 # Qwen VL models often have large contexts.
-      max_num_seqs: 8
+      max_model_len: 2048
+      max_num_seqs: 1000
       enforce_eager: False
       resolution_factor: null # Qwen VL models use min_pixels/max_pixels or exact dimensions
-      max_new_tokens: 200
+      max_tokens: 150
 
 # Text Task Configuration (from your previous example, with adjustments)
 text_config:
   data_path: "data/raw/yoder_data/sampled/identity_hate_corpora.jsonl"
-  prompts_file: "data/processed/classification_prompts/[DATASET]_[MODEL_NAME]_corners.pqt"
-  max_samples: null
+  dataset_name: "yoder"
+  #prompts_file: "data/processed/classification_prompts/[DATASET]_[MODEL_NAME]_corners.pqt"
+  extreme_pos_path: "data/results/extreme_pos_personas/[MODEL_NAME]/[TYPE].pkl"
+  max_samples: 100
   output_path: "data/results/text_classification/[MODEL_NAME]/[DATETIME].json"
   fold: "test"
   target_group_size: 1
@@ -53,18 +55,21 @@ text_config:
     - name: "meta-llama/Llama-3.1-8B-Instruct"
       vllm_seed: 22
       temperature: 0.0
-      max_model_len: 650
-      max_num_seqs: 65
+      max_model_len: 2048
+      max_num_seqs: 1000
       enforce_eager: False
+      max_tokens: 150
     - name: "meta-llama/Llama-3.1-70B-Instruct"
       vllm_seed: 22
       temperature: 0.0
-      max_model_len: 1024
-      max_num_seqs: 30
-      enforce_eager: True
+      max_model_len: 2048
+      max_num_seqs: 1000
+      enforce_eager: False
+      max_tokens: 150
     - name: "Qwen/Qwen2.5-32B-Instruct"
       vllm_seed: 22
       temperature: 0.0
-      max_model_len: 800
-      max_num_seqs: 50
+      max_model_len: 2048
+      max_num_seqs: 1000
       enforce_eager: False
+      max_tokens: 150

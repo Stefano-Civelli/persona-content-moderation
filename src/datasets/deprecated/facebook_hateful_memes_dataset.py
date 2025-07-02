@@ -10,23 +10,31 @@ class FacebookHatefulMemesDataset(BaseDataset):
     """Dataset implementation for Facebook Hateful Memes."""
 
     def __init__(
-        self, data_path: str, labels_relative_location: str, processor, prompts_file: str, max_samples: Optional[int] = None,seed: int = 42, **additional_params: Any
+        self,
+        data_path: str,
+        labels_relative_location: str,
+        processor,
+        prompts_file: str,
+        max_samples: Optional[int] = None,
+        extreme_pos_personas_path: Optional[str] = None,
+        prompt_template: Optional[str] = None,
+        seed: int = 42,
+        **additional_params: Any,
     ):
         self.processor = processor
-        self.prompts_file = prompts_file
         self.labels_relative_location = labels_relative_location
         self.prompts = {}
         self.persona_ids = []
-        self._load_prompts()
 
-        super().__init__(data_path, max_samples, seed, **additional_params)
-
-    def _load_prompts(self) -> None:
-        """Load prompts from file."""
-        prompts_df = pd.read_parquet(self.prompts_file)
-        for _, row in prompts_df.iterrows():
-            self.prompts[row["persona_id"]] = (row["prompt"], row["persona_pos"])
-        self.persona_ids = list(self.prompts.keys())
+        super().__init__(
+            data_path,
+            prompts_file,
+            max_samples,
+            extreme_pos_personas_path,
+            prompt_template,
+            seed,
+            **additional_params,
+        )
 
     def load_dataset(self) -> None:
         """Load Facebook Hateful Memes dataset."""
@@ -34,7 +42,6 @@ class FacebookHatefulMemesDataset(BaseDataset):
 
         with open(labels_path, "r") as f:
             data = [json.loads(line) for line in f]
-
 
         # filter away data items where gold_pc or gold_attack contain more than one label
         total_before = len(data)
@@ -44,7 +51,9 @@ class FacebookHatefulMemesDataset(BaseDataset):
             if len(item["gold_pc"]) == 1 and len(item["gold_attack"]) == 1
         ]
         ignored_items = total_before - len(data)
-        print(f"===Ignored {ignored_items} items due to multiple labels in gold_pc or gold_attack===")
+        print(
+            f"===Ignored {ignored_items} items due to multiple labels in gold_pc or gold_attack==="
+        )
 
         if self.max_samples:
             import random

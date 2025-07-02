@@ -1,39 +1,36 @@
-import logging
 import vllm  # Ensure vLLM is imported before torch to avoid conflicts even if it's not used in this file
+import logging
+import argparse
 from typing import Dict, Any, List, Tuple
 
 import torch
 import pandas as pd
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-import os
-import argparse
-from src.datasets.parser import HateSpeechJsonParser
+
+
+from src.models.base import BaseModel
 from src.datasets.base import (
     BaseDataset,
     PredictionParser
 )
-from src.datasets.subdata_text_dataset import SubdataTextDataset
-from src.models.base import (
-    BaseModel as ScriptBaseModel,
-)  # Renamed to avoid conflict with pydantic.BaseModel
-
-
-from src.models.vllm_model import VLLMModel
-
-# Assuming YoderIdentityDataset and IdentityContentClassification are in yoder_text_dataset
-from src.datasets.yoder_text_dataset import (
-    IdentityContentClassification,
-    YoderIdentityDataset
+from src.datasets.facebook_hateful_memes_dataset_vllm import (
+    FacebookHatefulMemesDataset,
+    HatefulContentClassification,
 )
+from src.datasets.parser import HateSpeechJsonParser
+from src.models.vision_model import Idefics3Model
+from src.models.vllm_vision import Idefics3VLLMModel, QwenVL2_5VLLMModel
 from utils.util import (
     ClassificationEvaluator,
     save_results,
     load_config,
     get_model_config,
 )
-from transformers import AutoTokenizer
 
+import os
+
+print(os.getcwd())
 
 # Setup logging
 logging.basicConfig(
@@ -42,34 +39,34 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-
 # ==================== Custom Collate ====================
 
 
-def custom_collate_fn(batch: List[Tuple[str, Dict, str, str, str]]):
-        prompts, labels, item_ids, persona_ids, persona_pos = zip(*batch)
-        return (
-            list(prompts),
-            list(labels),
-            list(item_ids),
-            list(persona_ids),
-            list(persona_pos),
-        )
+def custom_collate_fn(batch):
+    prompts, image, labels, item_ids, persona_ids, persona_pos = zip(*batch)
+    return (
+        list(prompts),
+        list(image),
+        list(labels),
+        list(item_ids),
+        list(persona_ids),
+        list(persona_pos),
+    )
 
 
 # ==================== Pipeline ====================
 
 
 class ClassificationPipeline:
-    """Main pipeline for running text classification experiments."""
+    """Main pipeline for running classification experiments."""
 
     def __init__(
         self,
         dataset: BaseDataset,
-        model: ScriptBaseModel,  # Use the renamed BaseModel
+        model: BaseModel,
         parser: PredictionParser,
         evaluator: ClassificationEvaluator,
-        batch_size: int = 8,  # Adjusted default for text
+        batch_size: int = 2,
         num_workers: int = 4,
     ):
         self.dataset = dataset
@@ -87,7 +84,7 @@ class ClassificationPipeline:
             shuffle=False,
             num_workers=self.num_workers,
             pin_memory=torch.cuda.is_available(),
-            collate_fn=custom_collate_fn,  # Using a simple collate for text
+            collate_fn=custom_collate_fn,
         )
 
         results = []
@@ -97,37 +94,39 @@ class ClassificationPipeline:
 
         first_batch = True
         for (
-            batch_prompts,
+            unformatted_prompts,
+            images,
             batch_labels,
-            batch_item_ids,
-            batch_persona_ids,
-            batch_persona_pos,
+            item_ids,
+            persona_ids,
+            persona_pos,
         ) in tqdm(dataloader):
 
             if first_batch:
                 logger.info("=" * 70)
-                logger.debug(f"Batch prompts: {batch_prompts[:1]}")
-                logger.debug(f"Batch labels: {batch_labels[:1]}")
-                logger.debug(f"Batch item IDs: {batch_item_ids[:1]}")
-                logger.debug(f"Batch persona IDs: {batch_persona_ids[:1]}")
-                logger.debug(f"Batch persona positions: {batch_persona_pos[:1]}")
+                logger.debug(f"unformatted prompts: {unformatted_prompts[:2]}")
+                logger.debug(f"images: {images[:2]}")
+                logger.debug(f"batch_labels: {batch_labels[:2]}")
+                logger.debug(f"item_ids: {item_ids[:2]}")
+                logger.debug(f"persona_ids: {persona_ids[:2]}")
+                logger.debug(f"persona_pos: {persona_pos[:2]}")
                 logger.info("=" * 70 + "\n")
                 first_batch = False
 
-            predictions = self.model.process_batch(batch_prompts)
+            # The model's process_batch now handles formatting and vLLM interaction
+            predictions = self.model.process_batch(unformatted_prompts, images)
 
-            for idx, pred_json_str in enumerate(predictions):
-                true_label_dict = self.dataset.convert_true_label(batch_labels[idx])
-                predicted_label_dict = self.parser.parse(pred_json_str)
+            for idx, pred in enumerate(predictions):
+                true_labels = self.dataset.convert_true_label(batch_labels[idx])
+                predicted_labels = self.parser.parse(pred)
 
                 result = {
-                    "item_id": batch_item_ids[idx],
-                    "prompt": batch_prompts[idx],
-                    "true_labels": true_label_dict,
-                    "raw_prediction": pred_json_str,
-                    "predicted_labels": predicted_label_dict,
-                    "persona_id": batch_persona_ids[idx],
-                    "persona_pos": batch_persona_pos[idx],
+                    "item_id": item_ids[idx],
+                    "true_labels": true_labels,
+                    "raw_prediction": pred,
+                    "predicted_labels": predicted_labels,
+                    "persona_id": persona_ids[idx],
+                    "persona_pos": persona_pos[idx],
                 }
                 results.append(result)
 
@@ -143,29 +142,28 @@ class ClassificationPipeline:
         for aspect, aspect_metrics in metrics.items():
             logger.info(f"\n{aspect.upper()} metrics:")
             for metric_name, value in aspect_metrics.items():
-                logger.info(f"  {metric_name}: {value:.4f}")
+                logger.info(f"  {metric_name}: {value:.3f}")
 
 
 # ==================== Main ====================
 def main():
-    # Set up argument parser
     parser = argparse.ArgumentParser(description="Run content classification pipeline")
-    parser.add_argument("--task_type", type=str, default="text", help="Type of task")
+    parser.add_argument("--task_type", type=str, default="vision", help="Type of task")
     parser.add_argument(
         "--model",
         type=str,
-        default="meta-llama/Llama-3.1-8B-Instruct",
+        default="Qwen/Qwen2.5-VL-7B-Instruct",
         help="Model name/path",
     )
     parser.add_argument(
         "--prompt_version",
         type=str,
-        default="v2",
+        default="v7", # v7
     )
     parser.add_argument(
         "--extreme_personas_type",
         type=str,
-        default="extreme_pos_corners", # extreme_pos_left_right
+        default="extreme_pos_corners",  # extreme_pos_left_right
     )
     args = parser.parse_args()
 
@@ -175,13 +173,12 @@ def main():
     if not model_config:
         logger.error(f"Model '{args.model}' not found in task '{args.task_type}'.")
         return
-    
+
     prompt_template = prompt_templates[task_config["dataset_name"]][
         args.prompt_version
     ]["template"]
 
     MODEL = args.model
-
     task_config["extreme_pos_path"] = (
         task_config["extreme_pos_path"]
         .replace("[MODEL_NAME]", MODEL.split("/")[-1])
@@ -202,43 +199,47 @@ def main():
 
     # ========== Create Objects ==========
 
-    model = VLLMModel(
-        model_id=MODEL,
-        seed=model_config["vllm_seed"],
-        temperature=model_config["temperature"],
-        max_model_len=model_config["max_model_len"],
-        max_num_seqs=model_config["max_num_seqs"],
-        max_tokens=model_config["max_tokens"],
-        enforce_eager=model_config["enforce_eager"],
-    )
+    if "idefics3" in MODEL.lower():
+        model = Idefics3VLLMModel(
+            model_id=MODEL,
+            seed=model_config["vllm_seed"],
+            temperature=model_config["temperature"],
+            enforce_eager=model_config["enforce_eager"],
+            resolution_factor=model_config["resolution_factor"],
+            max_tokens=model_config["max_tokens"],
+            max_model_len=model_config["max_model_len"],
+            max_num_seqs=model_config["max_num_seqs"],
+        )
+    elif "qwen" in MODEL.lower():
+        model = QwenVL2_5VLLMModel(
+            model_id=MODEL,
+            seed=model_config["vllm_seed"],
+            temperature=model_config["temperature"],
+            enforce_eager=model_config["enforce_eager"],
+            max_tokens=model_config["max_tokens"],
+            max_model_len=model_config["max_model_len"],
+            max_num_seqs=model_config["max_num_seqs"],
+        )
+    else:
+        raise ValueError(f"Model ID {MODEL} not supported by this script.")
 
-    tokenizer = AutoTokenizer.from_pretrained(MODEL)
-
-    dataset = YoderIdentityDataset(
+    dataset = FacebookHatefulMemesDataset(
         data_path=task_config["data_path"],
-        tokenizer=tokenizer,
+        labels_relative_location=task_config["labels_relative_location"],
         max_samples=task_config["max_samples"],
-        seed=task_config["dataset_seed"],
-        fold=task_config["fold"],
-        target_group_size=task_config["target_group_size"],
         extreme_pos_personas_path=task_config["extreme_pos_path"],
         prompt_template=prompt_template,
     )
-
-    # dataset = SubdataTextDataset(
-    #     data_path=config["data_path"],
-    #     tokenizer=tokenizer,
-    #     max_samples=config["max_samples"],
-    #     seed=config["dataset_seed"],
-    #     split="gender",
-    # )
-
-    # print some debugging information
     logger.info(f"Dataset size: {len(dataset)}")
 
-    parser = HateSpeechJsonParser(json_schema_class=IdentityContentClassification)
-    evaluator = ClassificationEvaluator(aspects=["is_hate_speech", "target_category"])
+    # for predicted labels
+    # parser = HatefulMemesPredictionParser()
+    parser = HateSpeechJsonParser(json_schema_class=HatefulContentClassification)
+    evaluator = ClassificationEvaluator(
+        ["is_hate_speech", "target_group", "attack_method"]
+    )
 
+    # Create and run pipeline
     pipeline = ClassificationPipeline(
         dataset=dataset,
         model=model,
@@ -247,12 +248,14 @@ def main():
         batch_size=task_config["batch_size"],
         num_workers=task_config["num_workers"],
     )
+    # ========== Create Objects ==========
 
     results, metrics = pipeline.run()
 
     logger.info("\nFinal Metrics:")
     pipeline._log_metrics(metrics)
 
+    # Save results
     metadata = {
         "task_config": task_config,
         "model_config": model_config,
