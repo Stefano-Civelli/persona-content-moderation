@@ -9,10 +9,7 @@ from tqdm import tqdm
 import os
 import argparse
 from src.datasets.parser import HateSpeechJsonParser
-from src.datasets.base import (
-    BaseDataset,
-    PredictionParser
-)
+from src.datasets.base import BaseDataset, PredictionParser
 from src.datasets.subdata_text_dataset import SubdataTextDataset
 from src.models.base import (
     BaseModel as ScriptBaseModel,
@@ -24,7 +21,7 @@ from src.models.vllm_model import VLLMModel
 # Assuming YoderIdentityDataset and IdentityContentClassification are in yoder_text_dataset
 from src.datasets.yoder_text_dataset import (
     IdentityContentClassification,
-    YoderIdentityDataset
+    YoderIdentityDataset,
 )
 from utils.util import (
     ClassificationEvaluator,
@@ -47,14 +44,14 @@ logger.setLevel(logging.DEBUG)
 
 
 def custom_collate_fn(batch: List[Tuple[str, Dict, str, str, str]]):
-        prompts, labels, item_ids, persona_ids, persona_pos = zip(*batch)
-        return (
-            list(prompts),
-            list(labels),
-            list(item_ids),
-            list(persona_ids),
-            list(persona_pos),
-        )
+    prompts, labels, item_ids, persona_ids, persona_pos = zip(*batch)
+    return (
+        list(prompts),
+        list(labels),
+        list(item_ids),
+        list(persona_ids),
+        list(persona_pos),
+    )
 
 
 # ==================== Pipeline ====================
@@ -106,11 +103,11 @@ class ClassificationPipeline:
 
             if first_batch:
                 logger.info("=" * 70)
-                logger.debug(f"Batch prompts: {batch_prompts[:1]}")
-                logger.debug(f"Batch labels: {batch_labels[:1]}")
-                logger.debug(f"Batch item IDs: {batch_item_ids[:1]}")
-                logger.debug(f"Batch persona IDs: {batch_persona_ids[:1]}")
-                logger.debug(f"Batch persona positions: {batch_persona_pos[:1]}")
+                logger.debug(f"Batch prompts: {batch_prompts[:2]}")
+                logger.debug(f"Batch labels: {batch_labels[:2]}")
+                logger.debug(f"Batch item IDs: {batch_item_ids[:2]}")
+                logger.debug(f"Batch persona IDs: {batch_persona_ids[:2]}")
+                logger.debug(f"Batch persona positions: {batch_persona_pos[:2]}")
                 logger.info("=" * 70 + "\n")
                 first_batch = False
 
@@ -165,7 +162,18 @@ def main():
     parser.add_argument(
         "--extreme_personas_type",
         type=str,
-        default="extreme_pos_corners", # extreme_pos_left_right
+        default="extreme_pos_corners_100",  # extreme_pos_left_right
+    )
+    parser.add_argument(
+        "--max_samples",
+        type=int,
+        default=None,
+    )
+    parser.add_argument(
+        "--run_description",
+        type=str,
+        default="",
+        help="A short description for the run, to be saved in the metadata.",
     )
     args = parser.parse_args()
 
@@ -175,7 +183,7 @@ def main():
     if not model_config:
         logger.error(f"Model '{args.model}' not found in task '{args.task_type}'.")
         return
-    
+
     prompt_template = prompt_templates[task_config["dataset_name"]][
         args.prompt_version
     ]["template"]
@@ -194,10 +202,19 @@ def main():
     )
     os.makedirs(os.path.dirname(task_config["output_path"]), exist_ok=True)
 
+    if "yoder" in task_config["dataset_name"].lower():
+        aspects = ["is_hate_speech", "target_category"]
+    elif "subdata" in task_config["dataset_name"].lower():
+        aspects = ["is_hate_speech"]
+    else:
+        logger.error(f"Unknown dataset name: {task_config['dataset_name']}")
+        return
+
     logger.info("=" * 70)
     logger.info(f"Extreme personas path: {task_config['extreme_pos_path']}")
     logger.info(f"Output path: {task_config['output_path']}")
     logger.info(f"Using model: {MODEL}")
+    logger.info(f"Aspects being evaluated: {aspects}")
     logger.info("=" * 70 + "\n")
 
     # ========== Create Objects ==========
@@ -210,6 +227,7 @@ def main():
         max_num_seqs=model_config["max_num_seqs"],
         max_tokens=model_config["max_tokens"],
         enforce_eager=model_config["enforce_eager"],
+        tensor_parallel_size=model_config.get("tensor_parallel_size", 1),
     )
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL)
@@ -217,7 +235,7 @@ def main():
     dataset = YoderIdentityDataset(
         data_path=task_config["data_path"],
         tokenizer=tokenizer,
-        max_samples=task_config["max_samples"],
+        max_samples=args.max_samples,
         seed=task_config["dataset_seed"],
         fold=task_config["fold"],
         target_group_size=task_config["target_group_size"],
@@ -228,7 +246,7 @@ def main():
     # dataset = SubdataTextDataset(
     #     data_path=config["data_path"],
     #     tokenizer=tokenizer,
-    #     max_samples=config["max_samples"],
+    #     max_samples=args.max_samples,
     #     seed=config["dataset_seed"],
     #     split="gender",
     # )
@@ -237,7 +255,8 @@ def main():
     logger.info(f"Dataset size: {len(dataset)}")
 
     parser = HateSpeechJsonParser(json_schema_class=IdentityContentClassification)
-    evaluator = ClassificationEvaluator(aspects=["is_hate_speech", "target_category"])
+
+    evaluator = ClassificationEvaluator(aspects=aspects)
 
     pipeline = ClassificationPipeline(
         dataset=dataset,
@@ -256,6 +275,7 @@ def main():
     metadata = {
         "task_config": task_config,
         "model_config": model_config,
+        "run_description": args.run_description,
         "timestamp": pd.Timestamp.now().isoformat(),
         "model_class": model.__class__.__name__,
         "dataset_class": dataset.__class__.__name__,

@@ -12,7 +12,7 @@ class HateSpeechJsonParser(PredictionParser):
     def __init__(self, json_schema_class):
         self.json_schema_class = json_schema_class
 
-    def parse(self, prediction: str, none_if_false: bool = True) -> Dict[str, Any]:
+    def parse(self, prediction: str, none_if_false: bool = False) -> Dict[str, Any]:
         """Parse JSON prediction into structured labels."""
         try:
             parsed_obj = self.json_schema_class.model_validate_json(prediction)

@@ -172,7 +172,7 @@ def plot_compass_positions(
     return fig
 
 
-def plot_model(model: str):
+def plot_model(model: str, n_corner_personas:int, n_left_right_personas:int):
     MODEL = model.split("/")[-1]
     compass_file_name = "final_compass"
 
@@ -195,11 +195,11 @@ def plot_model(model: str):
     print("=" * 70)
     print("Loading extreme positions data...")
     with open(
-        f"data/results/extreme_pos_personas/{MODEL}/extreme_pos_corners.pkl", "rb"
+        f"data/results/extreme_pos_personas/{MODEL}/extreme_pos_corners_{n_corner_personas}.pkl", "rb"
     ) as f:
         extreme_pos = pickle.load(f)
     with open(
-        f"data/results/extreme_pos_personas/{MODEL}/extreme_pos_left_right.pkl", "rb"
+        f"data/results/extreme_pos_personas/{MODEL}/extreme_pos_left_right_{n_left_right_personas}.pkl", "rb"
     ) as f:
         extreme_pos_l_r = pickle.load(f)
     print("=" * 70)
@@ -208,7 +208,7 @@ def plot_model(model: str):
     print()
     print("=" * 70)
     print("Generating and saving 'corners' plot...")
-    fig_extreme = plot_compass_positions(
+    _ = plot_compass_positions(
         df,
         extreme_pos,
         bins="log",
@@ -223,7 +223,7 @@ def plot_model(model: str):
     )
 
     plt.savefig(
-        os.path.join(extreme_compass_dir, f"{MODEL}_extreme_corners.png"),
+        os.path.join(extreme_compass_dir, f"{MODEL}_extreme_corners_{n_corner_personas}.png"),
         bbox_inches="tight",
         dpi=300,
     )
@@ -234,7 +234,7 @@ def plot_model(model: str):
     print()
     print("=" * 70)
     print("Generating and saving 'left-right' plot...")
-    fig_extreme_lr = plot_compass_positions(
+    _ = plot_compass_positions(
         df,
         extreme_pos_l_r,
         bins="log",
@@ -249,7 +249,7 @@ def plot_model(model: str):
     )
 
     plt.savefig(
-        os.path.join(extreme_compass_dir, f"{MODEL}_extreme_left_right.png"),
+        os.path.join(extreme_compass_dir, f"{MODEL}_extreme_left_right_{n_left_right_personas}.png"),
         bbox_inches="tight",
         dpi=300,
     )
@@ -262,6 +262,16 @@ def plot_model(model: str):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=int, default=-1)
+    parser.add_argument(
+        "--n_corner_personas",
+        type=int,
+        default=100,
+    )
+    parser.add_argument(
+        "--n_left_right_personas",
+        type=int,
+        default=200,
+    )
     args = parser.parse_args()
     models = get_all_model_names()
 
@@ -269,10 +279,14 @@ def main():
         # loop on all models and plot
         for model_index, model in enumerate(models):
             print(f"Processing model {model_index + 1}/{len(models)}: {model}")
-            plot_model(model)
+            plot_model(model, 
+                       n_corner_personas=args.n_corner_personas,
+                       n_left_right_personas=args.n_left_right_personas)
     else:
         model = models[args.model]
-        plot_model(model)
+        plot_model(model,
+                   n_corner_personas=args.n_corner_personas,
+                   n_left_right_personas=args.n_left_right_personas)
 
 
 if __name__ == "__main__":

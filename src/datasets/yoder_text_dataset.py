@@ -6,8 +6,6 @@ from src.datasets.base import BaseDataset
 from pydantic import BaseModel
 
 
-
-
 def map_grouping(grouping: str) -> str:
     """Map grouping to a more general category."""
     grouping = grouping.lower()
@@ -125,9 +123,11 @@ class YoderIdentityDataset(BaseDataset):
             )
 
     def __getitem__(self, idx: int) -> Tuple[Dict, Dict, str, Dict]:
-        num_prompts = len(self.prompts)
-        item_idx = idx // num_prompts
-        prompt_idx = idx % num_prompts
+        #I changed the order of items and personas, now its's much faster
+        num_texts = self.data_df.shape[0]
+        prompt_idx = idx // num_texts
+        item_idx = idx % num_texts
+        
 
         item = self.data_df.iloc[item_idx].to_dict()
         label = {

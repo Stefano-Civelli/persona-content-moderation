@@ -244,7 +244,7 @@ yoder:
       Based on your analysis, you must generate a single, valid JSON object that adheres to the following schema and logic. Do not output any text other than the JSON object.
 
       **Analysis Logic:**
-      1.  **Perspective:** Embody the persona of [PERSONA]. Your entire analysis must reflect their likely values, biases, worldview and sensitivity level to hateful content.
+      1.  **Perspective:** Embody the given persona. Your entire analysis must reflect their likely values, biases, worldview and sensitivity level to hateful content.
       2.  **Classification:** First, determine if the persona would consider the text to be hate speech. This determines the value of `is_hate_speech`.
       3.  **Conditional Analysis:**
           - **If `is_hate_speech` is "true"**: You MUST identify the single, primary `target_category` being attacked.
@@ -266,9 +266,10 @@ yoder:
         "target_category": "none"
       }
 
-      Now, analyze the text from the persona's perspective and generate the JSON object.
       Persona: [PERSONA]
       Text: [TEXT]
+      
+      Now, analyze the text from the persona's perspective and generate the JSON object.
     placeholders:
       - TEXT
       - PERSONA

@@ -1,18 +1,22 @@
+import argparse
 import json
 from matplotlib import pyplot as plt
 import seaborn as sns
 import pandas as pd
 import numpy as np
 from sklearn.metrics import cohen_kappa_score
-import yaml
 import os
+from utils.util import (
+    load_config,
+    get_model_config,
+)
 
 DATASET_NAME = None
 
 # Define possible values for each label
 POSSIBLE_VALUES = {
     "facebook-hateful-memes": {
-        "harmful": [0, 1],
+        "is_hate_speech": [0, 1],
         "target_group": [
             "none",
             "disability",
@@ -33,11 +37,11 @@ POSSIBLE_VALUES = {
         ],
     },
     "MMHS150K": {
-        "harmful": [0, 1],
+        "is_hate_speech": [0, 1],
         "target_group": ["Racist", "Sexist", "Homophobe", "Religion", "OtherHate"],
     },
-    "YODER": {
-        "harmful": [0, 1],
+    "yoder": {
+        "is_hate_speech": [0, 1],
         "target_group": [
             "women",
             "black",
@@ -159,14 +163,14 @@ def plot_agreement_matrix(
     plt.close()
 
 
-def get_positions(data):
+def get_positions(task_config):
     # Determine position types based on classification path
-    is_left_right = "left_right" in data["metadata"]["config"]["prompts_file"]
+    is_corners = "corners" in task_config["extreme_pos_path"]
 
-    if is_left_right:
-        positions = ["leftmost", "rightmost"]
-    else:
+    if is_corners:
         positions = ["top_left", "top_right", "bottom_left", "bottom_right"]
+    else:
+        positions = ["leftmost", "rightmost"]
 
     return positions
 
@@ -271,57 +275,74 @@ def compute_intra_agreement(df, pos, pairwise_results):
 
 def main():
     global DATASET_NAME
+    parser = argparse.ArgumentParser(description="Run content classification pipeline")
+    parser.add_argument("--task_type", type=str, default="text", help="Type of task") # text, img
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="Qwen/Qwen2.5-32B-Instruct",
+        help="Model name/path",
+    )
+    parser.add_argument(
+        "--filename",
+        type=str,
+        default="20250703_150720" # 20250625_162048
+    )
+    parser.add_argument(
+        "--extreme_personas_type",
+        type=str,
+        default="extreme_pos_corners",  # extreme_pos_left_right
+    )
+    args = parser.parse_args()
 
     # label names
     is_harmful_label = "is_hate_speech"
-    target_group_label = "target_category"  # "target_group"
-    attack_method_label = None  # "attack_method"
+    target_group_label = "target_category"  # "target_group" # target_category
+    #attack_method_label = "attack_method"  # "attack_method", None
+    
+    MODEL_NAME = args.model.split("/")[-1]
 
-    with open("config_text.yaml", "r") as f:
-        config = yaml.safe_load(f)
-
-    timestamp = "20250625_162048"
-
-    config["output_path"] = (
-        config["output_path"]
-        .replace("[MODEL_NAME]", config["model_id"].split("/")[-1])
-        .replace("[DATETIME]", timestamp)
-    )
-
-    print(f'Loading data from {config["output_path"]}')
+    input_path = f"data/results/{args.task_type}_classification/{MODEL_NAME}/{args.filename}.json"
+    plot_path = f"images/agreement/{MODEL_NAME}/agreement_matrix_{args.filename}.png"
+    pairwise_path = f"images/agreement/{MODEL_NAME}/pairwise_agreements_{args.filename}.csv"
 
     try:
-        with open(config["output_path"], "r") as f:
+        with open(input_path, "r") as f:
             data = json.load(f)
     except Exception as e:
         print(f"Error loading file: {str(e)}")
         return
 
-    DATASET_NAME = data["metadata"]["config"]["data_path"].split("/")[-1]
-    print(f"Dataset: {DATASET_NAME}")
+    task_config = data["metadata"]["task_config"]
+    model_config = data["metadata"]["model_config"]
+
+    assert model_config["name"].split('/')[-1] == MODEL_NAME, f"Model name mismatch: {model_config['name']} != {MODEL_NAME}"
+
+    DATASET_NAME = task_config["dataset_name"].replace("_", "-")
+    
 
     predictions = data["results"]
     df = pd.DataFrame(predictions)
 
     print(df.columns)
-
+    print()
+    print("=" * 70)
     print(f"\nDataset size: {len(df)} rows")
     print(f"Unique images: {df['item_id'].nunique()}")
     print(f"Positions present: {df['persona_pos'].unique()}")
     print(f"Personas present: {df['persona_id'].nunique()}")
+    print("=" * 70)
+    print()
 
     # Extract predicted labels
-    df["harmful"] = df["predicted_labels"].apply(lambda x: int(x[is_harmful_label]))
+    df["is_hate_speech"] = df["predicted_labels"].apply(lambda x: int(x[is_harmful_label]))
     if DATASET_NAME == "facebook-hateful-memes":
         df["target_group"] = df["predicted_labels"].apply(lambda x: x["target_group"])
         df["attack_method"] = df["predicted_labels"].apply(lambda x: x["attack_method"])
     elif DATASET_NAME == "MMHS150K":
         df["target_group"] = df["predicted_labels"].apply(lambda x: x["hate_type"])
-    elif DATASET_NAME == "identity_hate_corpora.jsonl":
-        DATASET_NAME = "YODER"
-        df["target_group"] = df["predicted_labels"].apply(
-            lambda x: x[target_group_label]
-        )
+    elif DATASET_NAME == "yoder":
+        df["target_group"] = df["predicted_labels"].apply(lambda x: x[target_group_label])
     else:
         print("Error: Dataset not supported")
         return
@@ -329,7 +350,7 @@ def main():
     df = df.drop(["predicted_labels", "true_labels"], axis=1)
 
     # Define positions
-    positions = get_positions(data)
+    positions = get_positions(task_config)
 
     matrix_size = len(positions)
 
@@ -356,8 +377,7 @@ def main():
     # Create DataFrame for better formatting
     agreement_df = pd.DataFrame(agreement_matrix, index=positions, columns=positions)
 
-    plot_path = f"data/results/agreement/agreement_matrix_{timestamp}.png"
-    pairwise_path = f"data/results/agreement/pairwise_agreements_{timestamp}.csv"
+    
 
     # Get the directory name from the path
     output_dir = os.path.dirname(plot_path)

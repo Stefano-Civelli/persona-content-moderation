@@ -165,6 +165,17 @@ def main():
         type=str,
         default="extreme_pos_corners",  # extreme_pos_left_right
     )
+    parser.add_argument(
+        "--max_samples",
+        type=int,
+        default=None,
+    )
+    parser.add_argument(
+        "--run_description",
+        type=str,
+        default="",
+        help="A short description for the run, to be saved in the metadata.",
+    )
     args = parser.parse_args()
 
     config, prompt_templates = load_config()
@@ -173,6 +184,7 @@ def main():
     if not model_config:
         logger.error(f"Model '{args.model}' not found in task '{args.task_type}'.")
         return
+    
 
     prompt_template = prompt_templates[task_config["dataset_name"]][
         args.prompt_version
@@ -226,7 +238,7 @@ def main():
     dataset = FacebookHatefulMemesDataset(
         data_path=task_config["data_path"],
         labels_relative_location=task_config["labels_relative_location"],
-        max_samples=task_config["max_samples"],
+        max_samples=args.max_samples,
         extreme_pos_personas_path=task_config["extreme_pos_path"],
         prompt_template=prompt_template,
     )
@@ -259,6 +271,7 @@ def main():
     metadata = {
         "task_config": task_config,
         "model_config": model_config,
+        "run_description": args.run_description,
         "timestamp": pd.Timestamp.now().isoformat(),
         "model_class": model.__class__.__name__,
         "dataset_class": dataset.__class__.__name__,

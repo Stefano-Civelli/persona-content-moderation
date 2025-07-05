@@ -75,6 +75,22 @@ class ClassificationEvaluator:
         """Calculate metrics for each aspect."""
         metrics = {}
 
+        # take away what is not an aspect from results
+        for r in results:
+            r["true_labels"] = {
+                k: v for k, v in r["true_labels"].items() if k in self.aspects
+            }
+            r["predicted_labels"] = {
+                k: v for k, v in r["predicted_labels"].items() if k in self.aspects
+            }
+
+        y_true_combined = [tuple(r["true_labels"].values()) for r in results]
+        y_pred_combined = [tuple(r["predicted_labels"].values()) for r in results]
+        correct_count = sum(1 for true, pred in zip(y_true_combined, y_pred_combined) if true == pred)
+        metrics["overall"] = {
+            "exact_match_ratio": correct_count / len(results) if results else 0
+        }
+
         for aspect in self.aspects:
             y_true = [self._get_aspect_value(r["true_labels"], aspect) for r in results]
             y_pred = [
@@ -89,15 +105,6 @@ class ClassificationEvaluator:
                 "accuracy": report["accuracy"],
                 "macro_f1": report["macro avg"]["f1-score"],
                 "weighted_f1": report["weighted avg"]["f1-score"],
-            }
-
-            y_true_combined = [tuple(r["true_labels"].values()) for r in results]
-            y_pred_combined = [tuple(r["predicted_labels"].values()) for r in results]
-            
-            correct_count = sum(1 for true, pred in zip(y_true_combined, y_pred_combined) if true == pred)
-            
-            metrics["overall"] = {
-                "exact_match_ratio": correct_count / len(results) if results else 0
             }
 
         return metrics

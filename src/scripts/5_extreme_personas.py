@@ -145,7 +145,7 @@ def process(model: str, n_corner_personas: int, n_left_right_personas: int):
     print()
     print("=" * 70)
     extreme_pos_path = (
-        f"data/results/extreme_pos_personas/{MODEL}/extreme_pos_corners.pkl"
+        f"data/results/extreme_pos_personas/{MODEL}/extreme_pos_corners_{n_corner_personas}.pkl"
     )
     os.makedirs(os.path.dirname(extreme_pos_path), exist_ok=True)
     print(f"Saving corner positions to: {extreme_pos_path}")
@@ -157,7 +157,7 @@ def process(model: str, n_corner_personas: int, n_left_right_personas: int):
     print()
     print("=" * 70)
     extreme_pos_left_right_path = (
-        f"data/results/extreme_pos_personas/{MODEL}/extreme_pos_left_right.pkl"
+        f"data/results/extreme_pos_personas/{MODEL}/extreme_pos_left_right_{n_left_right_personas}.pkl"
     )
     print(f"Saving left and right positions to: {extreme_pos_left_right_path}")
     with open(extreme_pos_left_right_path, "wb") as f:
@@ -176,12 +176,12 @@ def main():
     parser.add_argument(
         "--n_corner_personas",
         type=int,
-        default=30,
+        default=100,
     )
     parser.add_argument(
         "--n_left_right_personas",
         type=int,
-        default=50,
+        default=200,
     )
     args = parser.parse_args()
     models = get_all_model_names()

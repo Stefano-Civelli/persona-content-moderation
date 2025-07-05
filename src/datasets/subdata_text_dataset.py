@@ -3,9 +3,8 @@ import random
 from typing import Any, Dict, Optional, Tuple
 import pandas as pd
 from src.datasets.base import BaseDataset
-from pydantic import (
-    BaseModel,
-)  # Careful this is not my BaseModel, but the one from pydantic
+from pydantic import BaseModel
+
 
 
 class isHateSpeech(str, Enum):
@@ -87,7 +86,12 @@ class SubdataTextDataset(BaseDataset):
             df = df[df["category"] == self.split]
 
         # set every label to {is_hate_speech: True}
-        df["labels"] = {"is_hate_speech": "true"}
+        df["labels"] = df.apply( # TODO to check
+            lambda x: {
+                "is_hate_speech": "true", 
+                "target_category": x["target"]
+                }, axis=1
+            )
         df["item_id"] = df.index
 
         self.data_df = df

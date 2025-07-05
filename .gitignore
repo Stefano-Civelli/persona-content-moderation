@@ -118,3 +118,6 @@ data/
 *.html
 *.zip
 *.pickle
+*.o
+*.e
+*.txt
