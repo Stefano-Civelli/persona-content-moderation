@@ -66,6 +66,7 @@ class ClassificationPipeline:
         model: ScriptBaseModel,  # Use the renamed BaseModel
         parser: PredictionParser,
         evaluator: ClassificationEvaluator,
+        output_path: str,
         batch_size: int = 8,  # Adjusted default for text
         num_workers: int = 4,
     ):
@@ -73,10 +74,13 @@ class ClassificationPipeline:
         self.model = model
         self.parser = parser
         self.evaluator = evaluator
+        self.output_path = output_path
         self.batch_size = batch_size
         self.num_workers = num_workers
 
-    def run(self) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, float]]]:
+    def run(
+        self, start_batch: int = 0
+    ) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, float]]]:
         """Run the classification pipeline."""
         dataloader = DataLoader(
             self.dataset,
@@ -87,19 +91,24 @@ class ClassificationPipeline:
             collate_fn=custom_collate_fn,  # Using a simple collate for text
         )
 
-        results = []
+        all_results = []
         logger.info(
             f"Processing {len(self.dataset)} items in batches of {self.batch_size}..."
         )
+        if start_batch > 0:
+            logger.info(f"Starting from batch {start_batch}")
 
         first_batch = True
-        for (
+        for batch_idx, (
             batch_prompts,
             batch_labels,
             batch_item_ids,
             batch_persona_ids,
             batch_persona_pos,
-        ) in tqdm(dataloader):
+        ) in enumerate(tqdm(dataloader)):
+
+            if batch_idx < start_batch:
+                continue
 
             if first_batch:
                 logger.info("=" * 70)
@@ -113,6 +122,7 @@ class ClassificationPipeline:
 
             predictions = self.model.process_batch(batch_prompts)
 
+            batch_results = []
             for idx, pred_json_str in enumerate(predictions):
                 true_label_dict = self.dataset.convert_true_label(batch_labels[idx])
                 predicted_label_dict = self.parser.parse(pred_json_str)
@@ -126,14 +136,25 @@ class ClassificationPipeline:
                     "persona_id": batch_persona_ids[idx],
                     "persona_pos": batch_persona_pos[idx],
                 }
-                results.append(result)
+                batch_results.append(result)
 
-            running_metrics = self.evaluator.calculate_metrics(results)
-            logger.info(f"\nProgress: {len(results)} items processed")
+            # Save batch results
+            start_item = batch_idx * self.batch_size
+            end_item = start_item + len(batch_prompts) - 1
+            batch_filename = os.path.join(
+                self.output_path, "batches", f"results_{start_item}-{end_item}.json"
+            )
+            save_results(batch_results, {}, batch_filename, {})
+            logger.info(f"Saved batch {batch_idx} results to {batch_filename}")
+
+            all_results.extend(batch_results)
+
+            running_metrics = self.evaluator.calculate_metrics(all_results)
+            logger.info(f"\nProgress: {len(all_results)} items processed")
             self._log_metrics(running_metrics)
 
-        final_metrics = self.evaluator.calculate_metrics(results)
-        return results, final_metrics
+        final_metrics = self.evaluator.calculate_metrics(all_results)
+        return all_results, final_metrics
 
     def _log_metrics(self, metrics: Dict[str, Dict[str, float]]) -> None:
         """Log metrics to console."""
@@ -162,12 +183,18 @@ def main():
     parser.add_argument(
         "--extreme_personas_type",
         type=str,
-        default="extreme_pos_corners_100",  # extreme_pos_left_right
+        default="extreme_pos_corners",  # extreme_pos_left_right
     )
     parser.add_argument(
         "--max_samples",
         type=int,
         default=None,
+    )
+    parser.add_argument(
+        "--start_batch",
+        type=int,
+        default=0,
+        help="The batch number to start processing from.",
     )
     parser.add_argument(
         "--run_description",
@@ -263,11 +290,12 @@ def main():
         model=model,
         parser=parser,
         evaluator=evaluator,
+        output_path=task_config["output_path"],
         batch_size=task_config["batch_size"],
         num_workers=task_config["num_workers"],
     )
 
-    results, metrics = pipeline.run()
+    results, metrics = pipeline.run(start_batch=args.start_batch)
 
     logger.info("\nFinal Metrics:")
     pipeline._log_metrics(metrics)
@@ -281,8 +309,9 @@ def main():
         "dataset_class": dataset.__class__.__name__,
     }
 
-    save_results(results, metrics, task_config["output_path"], metadata)
-    logger.info(f"Results saved to {task_config['output_path']}")
+    final_results_path = os.path.join(task_config["output_path"], "final_results.json")
+    save_results(results, metrics, final_results_path, metadata)
+    logger.info(f"Results saved to {final_results_path}")
 
     logger.info("Pipeline completed successfully!")
     if hasattr(model, "cleanup"):

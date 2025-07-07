@@ -284,14 +284,14 @@ def main():
         help="Model name/path",
     )
     parser.add_argument(
-        "--filename",
+        "--timestamp",
         type=str,
-        default="20250703_150720" # 20250625_162048
+        default="20250704_183607" # 20250625_162048, 20250703_150720
     )
     parser.add_argument(
         "--extreme_personas_type",
         type=str,
-        default="extreme_pos_corners",  # extreme_pos_left_right
+        default="extreme_pos_corners_100",  # extreme_pos_left_right
     )
     args = parser.parse_args()
 
@@ -302,9 +302,11 @@ def main():
     
     MODEL_NAME = args.model.split("/")[-1]
 
-    input_path = f"data/results/{args.task_type}_classification/{MODEL_NAME}/{args.filename}.json"
-    plot_path = f"images/agreement/{MODEL_NAME}/agreement_matrix_{args.filename}.png"
-    pairwise_path = f"images/agreement/{MODEL_NAME}/pairwise_agreements_{args.filename}.csv"
+    input_path = f"data/results/{args.task_type}_classification/{MODEL_NAME}/{args.timestamp}.json"
+    # New implementation with the folder:
+    #input_path_folder = f"data/results/{args.task_type}_classification/{MODEL_NAME}/{args.timestamp}/final_results.json"
+    plot_path = f"images/agreement/{MODEL_NAME}/agreement_matrix_{args.timestamp}.png"
+    pairwise_path = f"images/agreement/{MODEL_NAME}/pairwise_agreements_{args.timestamp}.csv"
 
     try:
         with open(input_path, "r") as f:
