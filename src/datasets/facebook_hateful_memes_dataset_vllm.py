@@ -115,9 +115,13 @@ class FacebookHatefulMemesDataset(BaseDataset):
 
     def __getitem__(self, idx: int) -> Tuple[str, Image.Image, Dict, str, str, str]:
 
-        num_prompts = len(self.prompts)
-        item_idx = idx // num_prompts
-        prompt_idx = idx % num_prompts
+        # num_prompts = len(self.prompts)
+        # prompt_idx = idx % num_prompts
+        # item_idx = idx // num_prompts
+        # TODO understand if this works better or worse for images
+        num_images = len(self.items)
+        prompt_idx = idx // num_images
+        item_idx = idx % num_images
 
         item = self.items[item_idx]
         persona_id = self.persona_ids[prompt_idx]

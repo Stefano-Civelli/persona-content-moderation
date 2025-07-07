@@ -111,9 +111,10 @@ class SubdataTextDataset(BaseDataset):
         # self.data_df = pd.DataFrame(self.items)
 
     def __getitem__(self, idx: int) -> Tuple[Dict, Dict, str, Dict]:
-        num_prompts = len(self.prompts)
-        item_idx = idx // num_prompts
-        prompt_idx = idx % num_prompts
+        num_texts = self.data_df.shape[0]
+        prompt_idx = idx // num_texts
+        item_idx = idx % num_texts
+        
 
         item = self.data_df.iloc[item_idx]
         persona_id = self.persona_ids[prompt_idx]

@@ -304,7 +304,7 @@ def main():
 
     input_path = f"data/results/{args.task_type}_classification/{MODEL_NAME}/{args.timestamp}.json"
     # New implementation with the folder:
-    #input_path_folder = f"data/results/{args.task_type}_classification/{MODEL_NAME}/{args.timestamp}/final_results.json"
+    #input_path = f"data/results/{args.task_type}_classification/{MODEL_NAME}/{args.timestamp}/final_results.json"
     plot_path = f"images/agreement/{MODEL_NAME}/agreement_matrix_{args.timestamp}.png"
     pairwise_path = f"images/agreement/{MODEL_NAME}/pairwise_agreements_{args.timestamp}.csv"
 

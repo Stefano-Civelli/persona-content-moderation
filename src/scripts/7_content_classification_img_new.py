@@ -10,10 +10,7 @@ from tqdm import tqdm
 
 
 from src.models.base import BaseModel
-from src.datasets.base import (
-    BaseDataset,
-    PredictionParser
-)
+from src.datasets.base import BaseDataset, PredictionParser
 from src.datasets.facebook_hateful_memes_dataset_vllm import (
     FacebookHatefulMemesDataset,
     HatefulContentClassification,
@@ -78,7 +75,9 @@ class ClassificationPipeline:
         self.batch_size = batch_size
         self.num_workers = num_workers
 
-    def run(self, start_batch: int = 0) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, float]]]:
+    def run(
+        self, start_batch: int = 0
+    ) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, float]]]:
         """Run the classification pipeline."""
         dataloader = DataLoader(
             self.dataset,
@@ -87,6 +86,7 @@ class ClassificationPipeline:
             num_workers=self.num_workers,
             pin_memory=torch.cuda.is_available(),
             collate_fn=custom_collate_fn,
+            prefetch_factor=1,  # Number of batches loaded in advance by each worker. ``2`` means there will be a total of 2 * num_workers batches prefetched across all workers. (default: ``2``)
         )
 
         all_results = []
@@ -123,7 +123,7 @@ class ClassificationPipeline:
 
             # The model's process_batch now handles formatting and vLLM interaction
             predictions = self.model.process_batch(unformatted_prompts, images)
-            
+
             batch_results = []
             for idx, pred in enumerate(predictions):
                 true_labels = self.dataset.convert_true_label(batch_labels[idx])
@@ -178,7 +178,7 @@ def main():
     parser.add_argument(
         "--prompt_version",
         type=str,
-        default="v7", # v7
+        default="v7",  # v7
     )
     parser.add_argument(
         "--extreme_personas_type",
@@ -210,7 +210,6 @@ def main():
     if not model_config:
         logger.error(f"Model '{args.model}' not found in task '{args.task_type}'.")
         return
-    
 
     prompt_template = prompt_templates[task_config["dataset_name"]][
         args.prompt_version
