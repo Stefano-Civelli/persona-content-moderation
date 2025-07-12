@@ -113,7 +113,7 @@ class YoderIdentityDataset(BaseDataset):
         if self.target_group_size:
             self.data_df = self.data_df[
                 self.data_df["target_groups"].apply(
-                    lambda x: len(x) == self.target_group_size
+                    lambda x: len(x) <= self.target_group_size
                 )
             ]
 
@@ -147,7 +147,7 @@ class YoderIdentityDataset(BaseDataset):
             [message], tokenize=False, add_generation_prompt=True
         )
 
-        return prompt_text, label, str(item_idx), persona_id, persona_pos
+        return prompt_text, label, str(item["ID"]), persona_id, persona_pos
 
     def __len__(self) -> int:
         return self.data_df.shape[0] * len(self.prompts)

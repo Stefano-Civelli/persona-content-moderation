@@ -26,8 +26,13 @@ class HateSpeechJsonParser(PredictionParser):
                         for remaining_key in list(dumped_obj.keys())[1:]:
                             dumped_obj[remaining_key] = "none"
                         break
+                elif value is None:
+                    dumped_obj[key] = "none"
                 elif hasattr(value, "value"):
-                    dumped_obj[key] = value.value
+                    if value.value is None:
+                        dumped_obj[key] = "none"
+                    else:
+                        dumped_obj[key] = value.value
 
             return dumped_obj
 

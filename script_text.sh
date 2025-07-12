@@ -3,19 +3,23 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=100G
-#SBATCH --job-name=Qwen32
-#SBATCH --time=50:00:00
+#SBATCH --job-name=Llama70B_Y
+#SBATCH --time=80:00:00
 #SBATCH --partition=gpu_cuda
 #SBATCH --qos=gpu
-#SBATCH --gres=gpu:h100:1
+#SBATCH --gres=gpu:h100:2
 #SBATCH --account=a_demartini
-#SBATCH -o slurm_output/slurm_Qwen32.o
-#SBATCH -e slurm_error/slurm_Qwen32.e
-#SBATCH --exclude=bun074
+#SBATCH -o slurm_output/slurm_Llama70B_Y.o
+#SBATCH -e slurm_error/slurm_Llama70B_Y.e
+#SBATCH --exclude=bun076
 
 module load anaconda3/2023.09-0
 source $EBROOTANACONDA3/etc/profile.d/conda.sh
 conda activate vllm08
 module load cuda/12.2.0
 
-python -m src.scripts.8_content_classification_text --model "Qwen/Qwen2.5-32B-Instruct" --extreme_personas_type "extreme_pos_corners_100"
+python -m src.scripts.8_content_classification_text \
+    --model "meta-llama/Llama-3.1-70B-Instruct" \
+    --extreme_personas_type "extreme_pos_corners_100_centered" \
+    --run_description "Llama70B yoder 100 per corner first run" \
+    --dataset_name "yoder" \

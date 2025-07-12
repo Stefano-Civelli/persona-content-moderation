@@ -6,7 +6,6 @@ from src.datasets.base import BaseDataset
 from pydantic import BaseModel
 
 
-
 class isHateSpeech(str, Enum):
     true = "true"
     false = "false"
@@ -35,11 +34,11 @@ class isHateSpeech(str, Enum):
 #     none = "none"
 
 
-class ContentClassification(
+class BinaryContentClassification(
     BaseModel
 ):  # Careful this is not my BaseModel, but the one from pydantic
     is_hate_speech: isHateSpeech
-    # specific_target: SpecificTarget
+
 
 
 class SubdataTextDataset(BaseDataset):
@@ -47,7 +46,7 @@ class SubdataTextDataset(BaseDataset):
         self,
         data_path: str,
         tokenizer,
-        prompts_file: str,
+        prompts_file: Optional[str] = None,
         max_samples: Optional[int] = None,
         extreme_pos_personas_path: Optional[str] = None,
         prompt_template: Optional[str] = None,
@@ -77,44 +76,32 @@ class SubdataTextDataset(BaseDataset):
         """Load text dataset from CSV."""
         df = pd.read_csv(self.data_path)
 
+        # if there is no category it means that we are using one of the specific category datasets
+        # Likely we are using political_complete.csv
+        if self.split:
+            if "category" in df.columns:
+                df = df[df["category"] == self.split]
+            else:
+                print(
+                    "Not using the specified split because the given dataset is already of a specific category"
+                )
+
         # Apply sampling if needed
         if self.max_samples:
             random.seed(self.seed)
             df = df.sample(n=min(self.max_samples, len(df)), random_state=self.seed)
 
-        if self.split:
-            df = df[df["category"] == self.split]
-
         # set every label to {is_hate_speech: True}
-        df["labels"] = df.apply( # TODO to check
-            lambda x: {
-                "is_hate_speech": "true", 
-                "target_category": x["target"]
-                }, axis=1
-            )
-        df["item_id"] = df.index
+        df["labels"] = df.apply(
+            lambda x: {"is_hate_speech": True, "target_category": x["target"]}, axis=1
+        )
 
         self.data_df = df
-
-        # for idx, row in df.iterrows():
-        #     item_data = {
-        #         "text": row[self.text_field],
-        #         "labels": {
-        #             "is_hate_speech": "true",  # All items in this dataset are hate speech
-        #             "target_category": row.get("category", "none"),
-        #             "specific_target": row.get("target", "none"),
-        #         },
-        #         "item_id": f"text_{idx}",
-        #     }
-        #     self.items.append(item_data)
-
-        # self.data_df = pd.DataFrame(self.items)
 
     def __getitem__(self, idx: int) -> Tuple[Dict, Dict, str, Dict]:
         num_texts = self.data_df.shape[0]
         prompt_idx = idx // num_texts
         item_idx = idx % num_texts
-        
 
         item = self.data_df.iloc[item_idx]
         persona_id = self.persona_ids[prompt_idx]
@@ -130,11 +117,10 @@ class SubdataTextDataset(BaseDataset):
             [message], tokenize=False, add_generation_prompt=True
         )
 
-        return prompt_text, item["labels"], item["item_id"], persona_id, persona_pos
+        return prompt_text, item["labels"], str(item["ID"]), persona_id, persona_pos
 
     def __len__(self) -> int:
         return self.data_df.shape[0] * len(self.prompts)
-    
+
     def convert_true_label(self, raw_label):
         return raw_label
-

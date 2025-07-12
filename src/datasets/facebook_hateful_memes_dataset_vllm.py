@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 from PIL import Image
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import random
 from pydantic import BaseModel
 from enum import Enum
@@ -34,24 +34,24 @@ class AttackMethod(str, Enum):
     none = "none"
 
 
-class HatefulContentClassification(BaseModel):
-    is_hate_speech: isHateSpeech
-    target_group: TargetGroup
-    attack_method: AttackMethod
-
-
-# TODO alternative to try
 # class HatefulContentClassification(BaseModel):
 #     is_hate_speech: isHateSpeech
-#     target_group: Optional[TargetGroup] = None
-#     attack_method: Optional[AttackMethod] = None
+#     target_group: TargetGroup
+#     attack_method: AttackMethod
+
+
+# NOTE This seems to be betterat actually getting 
+class HatefulContentClassification(BaseModel):
+    is_hate_speech: isHateSpeech
+    target_group: Optional[TargetGroup] = None
+    attack_method: Optional[AttackMethod] = None
 
 
 class FacebookHatefulMemesDataset(BaseDataset):
     def __init__(
         self,
         data_path: str,
-        labels_relative_location: str,
+        labels_relative_location: List[str],
         prompts_file: Optional[str] = None,
         max_samples: Optional[int] = None,
         extreme_pos_personas_path: Optional[str] = None,
@@ -76,10 +76,12 @@ class FacebookHatefulMemesDataset(BaseDataset):
 
     def load_dataset(self) -> None:
         """Load Facebook Hateful Memes dataset."""
-        labels_path = Path(self.data_path) / self.labels_relative_location
+        labels_paths = [Path(self.data_path) / location for location in self.labels_relative_location]
 
-        with open(labels_path, "r") as f:
-            data = [json.loads(line) for line in f]
+        data = []
+        for labels_path in labels_paths:
+            with open(labels_path, "r") as f:
+                data.extend([json.loads(line) for line in f])
 
         total_before = len(data)
         data = [
@@ -112,6 +114,8 @@ class FacebookHatefulMemesDataset(BaseDataset):
                 )
             else:
                 print(f"Image {img_path} does not exist. Skipping item.")
+        
+        print(f"loaded a total of {len(self.items)} images")
 
     def __getitem__(self, idx: int) -> Tuple[str, Image.Image, Dict, str, str, str]:
 
@@ -146,6 +150,7 @@ class FacebookHatefulMemesDataset(BaseDataset):
             return len(self.items) * len(self.prompts)
         return len(self.items)
     
+    # TODO it should be possible to eliminate this if I change the names above
     def convert_true_label(self, raw_label):
         hate_label = (
             raw_label["hate"][0]

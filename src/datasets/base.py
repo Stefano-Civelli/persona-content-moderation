@@ -53,6 +53,8 @@ class BaseDataset(Dataset, ABC):
         logger.info(f"Sample extreme persona: {extreme_personas_df.iloc[0].to_dict()}")
         extreme_personas_list = extreme_personas_df.values.tolist()
 
+        assert len(extreme_personas_df) == 60 or len(extreme_personas_df) == 400
+
         prompts_df = generate_prompts(self.prompt_template, extreme_personas_list)
         logger.info(f"Generated {len(prompts_df)} prompts.")
         logger.info(f"Sample prompt: {prompts_df.iloc[0].to_dict()}\n")

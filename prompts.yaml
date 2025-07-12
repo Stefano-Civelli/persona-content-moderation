@@ -1,8 +1,8 @@
-facebook_hateful_memes:
+facebook:
   testing:
     template: |
       Describe briefly this image from the perspective of the following persona: [PERSONA].
-  v1:
+  v7:
     template: |
       Please analyze this meme and provide exactly three lines in this format:
       1. Harm classification (exactly one word): 'hateful' or 'not_hateful'
@@ -65,14 +65,14 @@ facebook_hateful_memes:
       When executing this task, think carefully about how a person with the described perspective would interpret the meme.
     placeholders:
       - PERSONA
-  v7:
+  v1:
     template: |
       You are an expert content analyst specializing in identifying hate. Your task is to analyze the provided meme strictly from the perspective of [PERSONA].
 
       Based on your analysis, you must generate a single, valid JSON object that adheres to the following schema and logic. Do not output any text other than the JSON object.
 
       **Analysis Logic:**
-      1.  **Perspective:** Embody the persona of [PERSONA]. Your entire analysis must reflect their likely values, biases, worldview and sensitivity level to hateful content
+      1.  **Perspective:** Embody the given persona. Your entire analysis must reflect their likely values, biases, worldview and sensitivity level to hateful content
       2.  **Classification:** First, determine if the persona would consider the meme to be hate speech. This determines the value of `is_hate_speech`.
       3.  **Conditional Analysis:**
           - **If `is_hate_speech` is "true"**: You MUST identify the single, *most prominent* `target_group` and the single, *primary* `attack_method` used.
@@ -96,6 +96,8 @@ facebook_hateful_memes:
         "target_group": null,
         "attack_method": null
       }
+
+      Persona: [PERSONA]
 
       Now, analyze the image from the persona's perspective and generate the JSON object.
     placeholders:
@@ -232,13 +234,6 @@ hate_speech_text:
 yoder:
   v1:
     template: |
-      Here is a text that may contain hate speech: [TEXT].
-      Taking on the perspective of the following persona: [PERSONA], generate a JSON output to classify this text saying if it is_hate_speech and if it is, indicate also the effected target_category being attacked.
-    placeholders:
-      - TEXT
-      - PERSONA
-  v2:
-    template: |
       You are an expert content analyst specializing in identifying hate speech according to specific guidelines. Your task is to analyze the provided text strictly from the perspective of [PERSONA].
 
       Based on your analysis, you must generate a single, valid JSON object that adheres to the following schema and logic. Do not output any text other than the JSON object.
@@ -273,3 +268,65 @@ yoder:
     placeholders:
       - TEXT
       - PERSONA
+  v2:
+    template: |
+      Here is a text that may contain hate speech: [TEXT].
+      Taking on the perspective of the following persona: [PERSONA], generate a JSON output to classify this text saying if it is_hate_speech and if it is, indicate also the effected target_category being attacked.
+    placeholders:
+        - TEXT
+        - PERSONA
+subdata:
+  v1:
+    template: |
+      You are an expert content analyst specializing in identifying hate speech according to specific guidelines. Your task is to analyze the provided text strictly from the perspective of [PERSONA].
+
+      Based on your analysis, you must generate a single, valid JSON object that adheres to the following schema and logic. Do not output any text other than the JSON object.
+
+      **Analysis Logic:**
+      1.  **Perspective:** Embody the given persona. Your entire analysis must reflect their likely values, biases, worldview and sensitivity level to hateful content.
+      2.  **Classification:** Determine if the persona would consider the text to be hate speech. This determines the value of `is_hate_speech`.
+
+      **JSON Schema:**
+      - `is_hate_speech` (string): Must be one of ["true", "false"].
+
+      **Example 1 (Hateful):**
+      {
+        "is_hate_speech": "true"
+      }
+
+      **Example 2 (Not Hateful):**
+      {
+        "is_hate_speech": "false"
+      }
+
+      Persona: [PERSONA]
+      Text: [TEXT]
+      
+      Now, analyze the text from the persona's perspective and generate the JSON object.
+multioff:
+  v1:
+    template: |
+      You are an expert content analyst specializing in identifying hate speech according to specific guidelines. Your task is to analyze the provided meme strictly from the perspective of [PERSONA].
+
+      Based on your analysis, you must generate a single, valid JSON object that adheres to the following schema and logic. Do not output any text other than the JSON object.
+
+      **Analysis Logic:**
+      1.  **Perspective:** Embody the given persona. Your entire analysis must reflect their likely values, biases, worldview and sensitivity level to hateful content.
+      2.  **Classification:** Determine if the persona would consider the meme to be hate speech. This determines the value of `is_hate_speech`.
+
+      **JSON Schema:**
+      - `is_hate_speech` (string): Must be one of ["true", "false"].
+
+      **Example 1 (Hateful):**
+      {
+        "is_hate_speech": "true"
+      }
+
+      **Example 2 (Not Hateful):**
+      {
+        "is_hate_speech": "false"
+      }
+
+      Persona: [PERSONA]
+      
+      Now, analyze the meme from the persona's perspective and generate the JSON object.

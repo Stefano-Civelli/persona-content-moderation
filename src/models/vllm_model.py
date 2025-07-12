@@ -18,6 +18,7 @@ class VLLMModel(BaseModel):
     def setup_model(self) -> None:
         """Initialize VLLM with guided decoding."""
         set_random_seed(self.additional_params.get("seed", 22))
+        json_schema_class = self.additional_params.get("json_schema_class", None)
         HF_CACHE = '/scratch/user/uqscivel/HF-CACHE'
 
         base_llm_kwargs = {
@@ -38,17 +39,19 @@ class VLLMModel(BaseModel):
             **self.additional_params
         }
 
+        final_llm_kwargs.pop("seed", None)
+        final_llm_kwargs.pop("max_tokens", None)
+        final_llm_kwargs.pop("json_schema_class", None)
+
         logger.info("=" * 70)
         logger.info("VLLM Parameters:")
         logger.info(final_llm_kwargs)
         logger.info("=" * 70 + "\n")
 
-        final_llm_kwargs.pop("seed", None)
-        final_llm_kwargs.pop("max_tokens", None)
         self.llm = LLM(**final_llm_kwargs)
 
         # Set up guided decoding for structured output
-        self.json_schema = IdentityContentClassification.model_json_schema()
+        self.json_schema = json_schema_class.model_json_schema()
         self.guided_decoding_params = GuidedDecodingParams(json=self.json_schema)
         self.sampling_params = SamplingParams(
             temperature=self.temperature,

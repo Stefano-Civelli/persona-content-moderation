@@ -1,12 +1,17 @@
 # Vision Task Configuration
 vision_config:
-  data_path: "data/raw/facebook-hateful-memes"
-  dataset_name: "facebook_hateful_memes"
-  labels_relative_location: "fine_grained_labels/dev_unseen.jsonl" # train or dev_unseen
+  data_path_facebook: "data/raw/facebook-hateful-memes"
+  labels_relative_location_facebook: 
+    - "fine_grained_labels/dev_unseen.jsonl"
+    - "fine_grained_labels/dev_seen.jsonl"
+  data_path_multioff: "data/raw/MultiOFF_Dataset"
+  labels_relative_location_multioff: 
+    - "Split Dataset/Training_meme_dataset.csv"
+    - "Split Dataset/Validation_meme_dataset.csv"
   extreme_pos_path: "data/results/extreme_pos_personas/[MODEL_NAME]/[TYPE].pkl"
   output_path: "data/results/img_classification/[MODEL_NAME]/[DATETIME].json"
   batch_size: 2000
-  num_workers: 10
+  num_workers: 2
   dataset_seed: 22
 
   models:
@@ -34,17 +39,25 @@ vision_config:
       enforce_eager: False
       resolution_factor: null # Qwen VL models use min_pixels/max_pixels or exact dimensions
       max_tokens: 200
+    # - name: "openbmb/MiniCPM-o-2_6" # 9B parameters
+    #   vllm_seed: 22
+    #   temperature: 0.0
+    #   max_model_len: 2048
+    #   max_num_seqs: 1000
+    #   enforce_eager: False
+    #   resolution_factor: null # MiniCPM-o uses min_pixels/max_pixels or exact dimensions
+    #   max_tokens: 200
 
 # Text Task Configuration (from your previous example, with adjustments)
 text_config:
-  data_path: "data/raw/yoder_data/sampled/identity_hate_corpora.jsonl"
-  dataset_name: "yoder"
+  data_path_yoder: "data/raw/yoder_data/sampled/identity_hate_corpora_with_id.jsonl"
+  data_path_subdata: "data/raw/subdata/political_complete.csv"
   extreme_pos_path: "data/results/extreme_pos_personas/[MODEL_NAME]/[TYPE].pkl"
   output_path: "data/results/text_classification/[MODEL_NAME]/[DATETIME]"
   fold: "test"
   target_group_size: 1 # keep only rows were target group size is 1
   batch_size: 50000 # 50000
-  num_workers: 10
+  num_workers: 5
   dataset_seed: 22
 
   models:
