@@ -2,13 +2,15 @@ import vllm  # Ensure vLLM is imported before torch to avoid conflicts even if i
 import logging
 import argparse
 from typing import Dict, Any, List, Tuple
-
+import subprocess
 import torch
 import pandas as pd
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 
+from src.datasets.multioff_dataset import MultiOffMemesDataset
+from src.datasets.subdata_text_dataset import BinaryContentClassification
 from src.models.base import BaseModel
 from src.datasets.base import BaseDataset, PredictionParser
 from src.datasets.facebook_hateful_memes_dataset_vllm import (
@@ -167,6 +169,10 @@ class ClassificationPipeline:
 
 # ==================== Main ====================
 def main():
+    # Find out which bunya node the code is running on
+    result = subprocess.run(["hostname"], capture_output=True, text=True, check=True)
+    print(result.stdout.strip())
+    
     parser = argparse.ArgumentParser(description="Run content classification pipeline")
     parser.add_argument("--task_type", type=str, default="vision", help="Type of task")
     parser.add_argument(
@@ -178,12 +184,17 @@ def main():
     parser.add_argument(
         "--prompt_version",
         type=str,
-        default="v7",  # v7
+        default="v1",  # v1
     )
     parser.add_argument(
         "--extreme_personas_type",
         type=str,
-        default="extreme_pos_corners",  # extreme_pos_left_right
+        default="extreme_pos_corners_100_centered",  # extreme_pos_left_right
+    )
+    parser.add_argument(
+        "--dataset_name",
+        type=str,
+        default="facebook",  # facebook, multioff
     )
     parser.add_argument(
         "--max_samples",
@@ -211,7 +222,7 @@ def main():
         logger.error(f"Model '{args.model}' not found in task '{args.task_type}'.")
         return
 
-    prompt_template = prompt_templates[task_config["dataset_name"]][
+    prompt_template = prompt_templates[args.dataset_name][
         args.prompt_version
     ]["template"]
 
@@ -236,6 +247,33 @@ def main():
 
     # ========== Create Objects ==========
 
+    if "facebook" in args.dataset_name.lower():
+        aspects = ["is_hate_speech", "target_group", "attack_method"]
+        dataset = FacebookHatefulMemesDataset(
+            data_path=task_config["data_path_facebook"],
+            labels_relative_location=task_config["labels_relative_location_facebook"],
+            max_samples=args.max_samples,
+            extreme_pos_personas_path=task_config["extreme_pos_path"],
+            prompt_template=prompt_template,
+        )
+        json_schema_class = HatefulContentClassification
+    elif "multioff" in args.dataset_name.lower():
+        aspects = ["is_hate_speech"]
+        dataset = MultiOffMemesDataset(
+            data_path=task_config["data_path_multioff"],
+            labels_relative_location=task_config["labels_relative_location_multioff"],
+            max_samples=args.max_samples,
+            extreme_pos_personas_path=task_config["extreme_pos_path"],
+            prompt_template=prompt_template,
+        )
+        json_schema_class = BinaryContentClassification
+    else:
+        logger.error(f"Unknown dataset name: {args.dataset_name}")
+        return
+
+    logger.info(f"Dataset size: {len(dataset)}")
+
+
     if "idefics3" in MODEL.lower():
         model = Idefics3VLLMModel(
             model_id=MODEL,
@@ -246,6 +284,7 @@ def main():
             max_tokens=model_config["max_tokens"],
             max_model_len=model_config["max_model_len"],
             max_num_seqs=model_config["max_num_seqs"],
+            json_schema_class=json_schema_class,
         )
     elif "qwen" in MODEL.lower():
         model = QwenVL2_5VLLMModel(
@@ -256,25 +295,14 @@ def main():
             max_tokens=model_config["max_tokens"],
             max_model_len=model_config["max_model_len"],
             max_num_seqs=model_config["max_num_seqs"],
+            json_schema_class=json_schema_class,
         )
     else:
         raise ValueError(f"Model ID {MODEL} not supported by this script.")
 
-    dataset = FacebookHatefulMemesDataset(
-        data_path=task_config["data_path"],
-        labels_relative_location=task_config["labels_relative_location"],
-        max_samples=args.max_samples,
-        extreme_pos_personas_path=task_config["extreme_pos_path"],
-        prompt_template=prompt_template,
-    )
-    logger.info(f"Dataset size: {len(dataset)}")
-
-    # for predicted labels
-    # parser = HatefulMemesPredictionParser()
-    parser = HateSpeechJsonParser(json_schema_class=HatefulContentClassification)
-    evaluator = ClassificationEvaluator(
-        ["is_hate_speech", "target_group", "attack_method"]
-    )
+    
+    parser = HateSpeechJsonParser(json_schema_class=json_schema_class)
+    evaluator = ClassificationEvaluator(aspects=aspects)
 
     # Create and run pipeline
     pipeline = ClassificationPipeline(
@@ -297,6 +325,10 @@ def main():
     metadata = {
         "task_config": task_config,
         "model_config": model_config,
+        "dataset_name": args.dataset_name,
+        "prompt_version": args.prompt_version,
+        "extreme_personas_type": args.extreme_personas_type,
+        "max_samples": args.max_samples,
         "run_description": args.run_description,
         "timestamp": pd.Timestamp.now().isoformat(),
         "model_class": model.__class__.__name__,

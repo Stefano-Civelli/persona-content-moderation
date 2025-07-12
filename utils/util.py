@@ -69,32 +69,37 @@ class ClassificationEvaluator:
     def __init__(self, aspects: List[str]):
         self.aspects = aspects
 
-    def calculate_metrics(
-        self, results: List[Dict[str, Any]]
-    ) -> Dict[str, Dict[str, float]]:
-        """Calculate metrics for each aspect."""
+    def calculate_metrics(self, results: List[Dict[str, Any]]) -> Dict[str, Dict[str, float]]:
+        if not results:
+            return {}
+
         metrics = {}
 
-        # take away what is not an aspect from results
-        for r in results:
-            r["true_labels"] = {
-                k: v for k, v in r["true_labels"].items() if k in self.aspects
-            }
-            r["predicted_labels"] = {
-                k: v for k, v in r["predicted_labels"].items() if k in self.aspects
-            }
+        filtered_true_labels = [
+            {k: v for k, v in r["true_labels"].items() if k in self.aspects}
+            for r in results
+        ]
+        filtered_pred_labels = [
+            {k: v for k, v in r["predicted_labels"].items() if k in self.aspects}
+            for r in results
+        ]
 
-        y_true_combined = [tuple(r["true_labels"].values()) for r in results]
-        y_pred_combined = [tuple(r["predicted_labels"].values()) for r in results]
-        correct_count = sum(1 for true, pred in zip(y_true_combined, y_pred_combined) if true == pred)
-        metrics["overall"] = {
-            "exact_match_ratio": correct_count / len(results) if results else 0
-        }
+        y_true_combined = [tuple(labels.values()) for labels in filtered_true_labels]
+        y_pred_combined = [tuple(labels.values()) for labels in filtered_pred_labels]
+
+        correct_count = sum(
+            1 for true, pred in zip(y_true_combined, y_pred_combined) if true == pred
+        )
+        metrics["overall"] = {"exact_match_ratio": correct_count / len(results)}
 
         for aspect in self.aspects:
-            y_true = [self._get_aspect_value(r["true_labels"], aspect) for r in results]
+            y_true = [
+                self._get_aspect_value(labels, aspect)
+                for labels in filtered_true_labels
+            ]
             y_pred = [
-                self._get_aspect_value(r["predicted_labels"], aspect) for r in results
+                self._get_aspect_value(labels, aspect)
+                for labels in filtered_pred_labels
             ]
 
             report = classification_report(
@@ -220,8 +225,6 @@ def load_config(config_path="models_config.yaml", prompts_path="prompts.yaml"):
         prompts = yaml.safe_load(f)
     return config, prompts
 
-    
-
 
 def get_task_config(config: Dict[str, Any], task_type: str):
     task_key = f"{task_type}_config"
@@ -252,6 +255,7 @@ def get_all_model_names(config_path: str = "models_config.yaml") -> List[str]:
 
 
 # ================ YAML UTILS ================
+
 
 def clean_leading_trailing_newline(s: str) -> str:
     """Remove leading and trailing newlines from a string."""

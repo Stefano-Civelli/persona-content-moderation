@@ -14,7 +14,7 @@ from src.datasets.subdata_text_dataset import SubdataTextDataset
 from src.models.base import (
     BaseModel as ScriptBaseModel,
 )  # Renamed to avoid conflict with pydantic.BaseModel
-
+import subprocess
 
 from src.models.vllm_model import VLLMModel
 
@@ -23,6 +23,7 @@ from src.datasets.yoder_text_dataset import (
     IdentityContentClassification,
     YoderIdentityDataset,
 )
+from src.datasets.subdata_text_dataset import BinaryContentClassification
 from utils.util import (
     ClassificationEvaluator,
     save_results,
@@ -166,7 +167,10 @@ class ClassificationPipeline:
 
 # ==================== Main ====================
 def main():
-    # Set up argument parser
+    # Find out which bunya node the code is running on
+    result = subprocess.run(["hostname"], capture_output=True, text=True, check=True)
+    print(result.stdout.strip())
+
     parser = argparse.ArgumentParser(description="Run content classification pipeline")
     parser.add_argument("--task_type", type=str, default="text", help="Type of task")
     parser.add_argument(
@@ -178,12 +182,17 @@ def main():
     parser.add_argument(
         "--prompt_version",
         type=str,
-        default="v2",
+        default="v1",
     )
     parser.add_argument(
         "--extreme_personas_type",
         type=str,
-        default="extreme_pos_corners",  # extreme_pos_left_right
+        default="extreme_pos_left_right_200",  # extreme_pos_left_right
+    )
+    parser.add_argument(
+        "--dataset_name",
+        type=str,
+        default="yoder",  # subdata, yoder
     )
     parser.add_argument(
         "--max_samples",
@@ -211,7 +220,7 @@ def main():
         logger.error(f"Model '{args.model}' not found in task '{args.task_type}'.")
         return
 
-    prompt_template = prompt_templates[task_config["dataset_name"]][
+    prompt_template = prompt_templates[args.dataset_name][
         args.prompt_version
     ]["template"]
 
@@ -229,22 +238,50 @@ def main():
     )
     os.makedirs(os.path.dirname(task_config["output_path"]), exist_ok=True)
 
-    if "yoder" in task_config["dataset_name"].lower():
-        aspects = ["is_hate_speech", "target_category"]
-    elif "subdata" in task_config["dataset_name"].lower():
-        aspects = ["is_hate_speech"]
-    else:
-        logger.error(f"Unknown dataset name: {task_config['dataset_name']}")
-        return
 
     logger.info("=" * 70)
     logger.info(f"Extreme personas path: {task_config['extreme_pos_path']}")
     logger.info(f"Output path: {task_config['output_path']}")
     logger.info(f"Using model: {MODEL}")
-    logger.info(f"Aspects being evaluated: {aspects}")
     logger.info("=" * 70 + "\n")
 
     # ========== Create Objects ==========
+
+    tokenizer = AutoTokenizer.from_pretrained(MODEL)
+
+    if "yoder" in args.dataset_name.lower():
+        aspects = ["is_hate_speech", "target_category"]
+
+        dataset = YoderIdentityDataset(
+            data_path=task_config["data_path_yoder"],
+            tokenizer=tokenizer,
+            max_samples=args.max_samples,
+            seed=task_config["dataset_seed"],
+            fold=task_config["fold"],
+            target_group_size=task_config["target_group_size"],
+            extreme_pos_personas_path=task_config["extreme_pos_path"],
+            prompt_template=prompt_template,
+        )
+        json_schema_class = IdentityContentClassification
+    elif "subdata" in args.dataset_name.lower():
+        aspects = ["is_hate_speech"]
+
+        dataset = SubdataTextDataset(
+            data_path=task_config["data_path_subdata"],
+            tokenizer=tokenizer,
+            max_samples=args.max_samples,
+            extreme_pos_personas_path=task_config["extreme_pos_path"],
+            prompt_template=prompt_template,
+            seed=task_config["dataset_seed"],
+            split="political",
+        )
+        json_schema_class = BinaryContentClassification
+    else:
+        logger.error(f"Unknown dataset name: {args.dataset_name}")
+        return
+
+    logger.info(f"Dataset size: {len(dataset)}")
+
 
     model = VLLMModel(
         model_id=MODEL,
@@ -255,34 +292,11 @@ def main():
         max_tokens=model_config["max_tokens"],
         enforce_eager=model_config["enforce_eager"],
         tensor_parallel_size=model_config.get("tensor_parallel_size", 1),
+        json_schema_class=json_schema_class,
     )
 
-    tokenizer = AutoTokenizer.from_pretrained(MODEL)
 
-    dataset = YoderIdentityDataset(
-        data_path=task_config["data_path"],
-        tokenizer=tokenizer,
-        max_samples=args.max_samples,
-        seed=task_config["dataset_seed"],
-        fold=task_config["fold"],
-        target_group_size=task_config["target_group_size"],
-        extreme_pos_personas_path=task_config["extreme_pos_path"],
-        prompt_template=prompt_template,
-    )
-
-    # dataset = SubdataTextDataset(
-    #     data_path=config["data_path"],
-    #     tokenizer=tokenizer,
-    #     max_samples=args.max_samples,
-    #     seed=config["dataset_seed"],
-    #     split="gender",
-    # )
-
-    # print some debugging information
-    logger.info(f"Dataset size: {len(dataset)}")
-
-    parser = HateSpeechJsonParser(json_schema_class=IdentityContentClassification)
-
+    parser = HateSpeechJsonParser(json_schema_class=json_schema_class)
     evaluator = ClassificationEvaluator(aspects=aspects)
 
     pipeline = ClassificationPipeline(
@@ -303,6 +317,10 @@ def main():
     metadata = {
         "task_config": task_config,
         "model_config": model_config,
+        "dataset_name": args.dataset_name,
+        "prompt_version": args.prompt_version,
+        "extreme_personas_type": args.extreme_personas_type,
+        "max_samples": args.max_samples,
         "run_description": args.run_description,
         "timestamp": pd.Timestamp.now().isoformat(),
         "model_class": model.__class__.__name__,

@@ -172,9 +172,10 @@ def plot_compass_positions(
     return fig
 
 
-def plot_model(model: str, n_corner_personas:int, n_left_right_personas:int):
+def plot_model(model: str, n_corner_personas:int, n_left_right_personas:int, use_center:bool = False):
     MODEL = model.split("/")[-1]
     compass_file_name = "final_compass"
+    suffix = "_centered" if use_center else ""
 
     extreme_compass_dir = f"images/extreme_compass/{MODEL}"
     if not os.path.exists(extreme_compass_dir):
@@ -195,11 +196,11 @@ def plot_model(model: str, n_corner_personas:int, n_left_right_personas:int):
     print("=" * 70)
     print("Loading extreme positions data...")
     with open(
-        f"data/results/extreme_pos_personas/{MODEL}/extreme_pos_corners_{n_corner_personas}.pkl", "rb"
+        f"data/results/extreme_pos_personas/{MODEL}/extreme_pos_corners_{n_corner_personas}{suffix}.pkl", "rb"
     ) as f:
         extreme_pos = pickle.load(f)
     with open(
-        f"data/results/extreme_pos_personas/{MODEL}/extreme_pos_left_right_{n_left_right_personas}.pkl", "rb"
+        f"data/results/extreme_pos_personas/{MODEL}/extreme_pos_left_right_{n_left_right_personas}{suffix}.pkl", "rb"
     ) as f:
         extreme_pos_l_r = pickle.load(f)
     print("=" * 70)
@@ -223,7 +224,7 @@ def plot_model(model: str, n_corner_personas:int, n_left_right_personas:int):
     )
 
     plt.savefig(
-        os.path.join(extreme_compass_dir, f"{MODEL}_extreme_corners_{n_corner_personas}.png"),
+        os.path.join(extreme_compass_dir, f"{MODEL}_extreme_corners_{n_corner_personas}{suffix}.png"),
         bbox_inches="tight",
         dpi=300,
     )
@@ -249,7 +250,7 @@ def plot_model(model: str, n_corner_personas:int, n_left_right_personas:int):
     )
 
     plt.savefig(
-        os.path.join(extreme_compass_dir, f"{MODEL}_extreme_left_right_{n_left_right_personas}.png"),
+        os.path.join(extreme_compass_dir, f"{MODEL}_extreme_left_right_{n_left_right_personas}{suffix}.png"),
         bbox_inches="tight",
         dpi=300,
     )
@@ -272,6 +273,11 @@ def main():
         type=int,
         default=200,
     )
+    parser.add_argument(
+        "--use_center",
+        action="store_true",
+        help="Needed to read and store the correct file",
+    )
     args = parser.parse_args()
     models = get_all_model_names()
 
@@ -281,12 +287,12 @@ def main():
             print(f"Processing model {model_index + 1}/{len(models)}: {model}")
             plot_model(model, 
                        n_corner_personas=args.n_corner_personas,
-                       n_left_right_personas=args.n_left_right_personas)
+                       n_left_right_personas=args.n_left_right_personas, use_center=args.use_center)
     else:
         model = models[args.model]
         plot_model(model,
                    n_corner_personas=args.n_corner_personas,
-                   n_left_right_personas=args.n_left_right_personas)
+                   n_left_right_personas=args.n_left_right_personas, use_center=args.use_center)
 
 
 if __name__ == "__main__":
