@@ -1,9 +1,11 @@
+import argparse
 import json
 from matplotlib import pyplot as plt
 import seaborn as sns
 import pandas as pd
 import numpy as np
-import simpledorff  # <-- Import the new library
+import simpledorff
+import os
 
 # NOTE ON THE CHANGE OF METRIC:
 # This script has been modified to use Krippendorff's Alpha instead of Cohen's Kappa.
@@ -140,17 +142,18 @@ def plot_agreement_matrix(
     plt.close()
 
 
-def get_positions(data):
-    is_left_right = "left_right" in data["metadata"]["classification_prompts_path"]
-    return (
-        ["leftmost", "rightmost"]
-        if is_left_right
-        else ["top_left", "top_right", "bottom_left", "bottom_right"]
-    )
+def get_positions(task_config):
+    # Determine position types based on classification path
+    is_corners = "corners" in task_config["extreme_pos_path"]
+
+    if is_corners:
+        positions = ["top_left", "top_right", "bottom_left", "bottom_right"]
+    else:
+        positions = ["leftmost", "rightmost"]
+
+    return positions
 
 
-# This function is no longer needed.
-# def safe_cohen_kappa(y1, y2, label_type): ...
 
 
 def compute_inter_agreement(df, pos1, pos2):
@@ -177,7 +180,7 @@ def compute_inter_agreement(df, pos1, pos2):
         # Calculate Krippendorff's Alpha for the combined group on a single label
         alpha_score = simpledorff.calculate_krippendorffs_alpha_for_df(
             combined_df,
-            experiment_col="image_name",
+            experiment_col="item_id",
             annotator_col="persona_id",
             class_col=label,
         )
@@ -209,7 +212,7 @@ def compute_intra_agreement(df, pos):
         # Calculate Krippendorff's Alpha for the group on a single label
         alpha_score = simpledorff.calculate_krippendorffs_alpha_for_df(
             group_df,
-            experiment_col="image_name",
+            experiment_col="item_id",
             annotator_col="persona_id",
             class_col=label,
         )
@@ -224,40 +227,68 @@ def compute_intra_agreement(df, pos):
 def main():
     global DATASET_NAME
 
-    file_name = "predictions_20250108_172334"
-    print(f"Loading data from {file_name}")
+    parser = argparse.ArgumentParser(description="Run content classification pipeline")
+    parser.add_argument(
+        "--input_path",
+        type=str,
+        default="data/results/img_classification/Qwen2.5-VL-7B-Instruct/20250712_012750.json/final_results.json"
+    )
+    args = parser.parse_args()
 
     try:
-        with open(f"../../results/meme_classification_task/{file_name}.json", "r") as f:
+        with open(args.input_path, "r") as f:
             data = json.load(f)
     except Exception as e:
         print(f"Error loading file: {str(e)}")
         return
+    
+    task_config = data["metadata"]["task_config"]
+    model_config = data["metadata"]["model_config"]
 
-    DATASET_NAME = data["metadata"]["data_path"].split("/")[-1]
-    print(f"Dataset: {DATASET_NAME}")
+    MODEL_NAME = model_config["name"].split("/")[-1]
+    TIMESTAMP = args.input_path.split("/")[-2] # or [-1] in the old version
+    DATASET_NAME = data["metadata"]["dataset_name"]
 
-    predictions = data["predictions"]
+    first_result_labels = data["results"][0]["true_labels"]
+    # extract the keys of the labels:
+    first_result_labels = list(first_result_labels.keys())
+    # label names
+    is_harmful_label = first_result_labels[0]
+    target_group_label = first_result_labels[1] if len(first_result_labels) > 1 else None
+    attack_method_label = first_result_labels[2] if len(first_result_labels) > 2 else None
+
+    plot_path = f"images/agreement/{MODEL_NAME}/agreement_matrix_{TIMESTAMP}.png"
+    pairwise_path = f"images/agreement/{MODEL_NAME}/pairwise_agreements_{TIMESTAMP}.csv"
+
+    predictions = data["results"]
     df = pd.DataFrame(predictions)
 
+    print(df.columns)
+    print()
+    print("=" * 70)
     print(f"\nDataset size: {len(df)} rows")
-    print(f"Unique images: {df['image_name'].nunique()}")
+    print(f"Unique images: {df['item_id'].nunique()}")
     print(f"Positions present: {df['persona_pos'].unique()}")
     print(f"Personas present: {df['persona_id'].nunique()}")
+    print("=" * 70)
+    print()
 
-    df["harmful"] = df["predicted_labels"].apply(lambda x: int(x["harmful"]))
-    if DATASET_NAME == "facebook-hateful-memes":
+    # Extract predicted labels
+    df["is_hate_speech"] = df["predicted_labels"].apply(lambda x: int(x[is_harmful_label]))
+    if DATASET_NAME == "facebook":
         df["target_group"] = df["predicted_labels"].apply(lambda x: x["target_group"])
         df["attack_method"] = df["predicted_labels"].apply(lambda x: x["attack_method"])
     elif DATASET_NAME == "MMHS150K":
         df["target_group"] = df["predicted_labels"].apply(lambda x: x["hate_type"])
+    elif DATASET_NAME == "yoder":
+        df["target_group"] = df["predicted_labels"].apply(lambda x: x[target_group_label])
     else:
         print("Error: Dataset not supported")
         return
 
     df = df.drop(["predicted_labels", "true_labels"], axis=1)
 
-    positions = get_positions(data)
+    positions = get_positions(task_config)
     matrix_size = len(positions)
     agreement_matrix = np.zeros((matrix_size, matrix_size))
 
@@ -274,9 +305,9 @@ def main():
 
     agreement_df = pd.DataFrame(agreement_matrix, index=positions, columns=positions)
 
-    plot_path = (
-        f"../../results/agreement_matrix/agreement_matrix_{file_name}_krippendorff.png"
-    )
+    output_dir = os.path.dirname(plot_path)
+    os.makedirs(output_dir, exist_ok=True)
+
     plot_agreement_matrix(agreement_df, positions, plot_path)
     print(f"\nAgreement matrix plot saved to {plot_path}")
 

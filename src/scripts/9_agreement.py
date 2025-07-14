@@ -15,7 +15,7 @@ DATASET_NAME = None
 
 # Define possible values for each label
 POSSIBLE_VALUES = {
-    "facebook-hateful-memes": {
+    "facebook": {
         "is_hate_speech": [0, 1],
         "target_group": [
             "none",
@@ -275,53 +275,45 @@ def compute_intra_agreement(df, pos, pairwise_results):
 
 def main():
     global DATASET_NAME
+
     parser = argparse.ArgumentParser(description="Run content classification pipeline")
-    parser.add_argument("--task_type", type=str, default="text", help="Type of task") # text, img
     parser.add_argument(
-        "--model",
+        "--input_path",
         type=str,
-        default="Qwen/Qwen2.5-32B-Instruct",
-        help="Model name/path",
-    )
-    parser.add_argument(
-        "--timestamp",
-        type=str,
-        default="20250704_183607" # 20250625_162048, 20250703_150720
-    )
-    parser.add_argument(
-        "--extreme_personas_type",
-        type=str,
-        default="extreme_pos_corners_100",  # extreme_pos_left_right
+        default="data/results/img_classification/Qwen2.5-VL-7B-Instruct/20250712_012750.json/final_results.json"
     )
     args = parser.parse_args()
 
-    # label names
-    is_harmful_label = "is_hate_speech"
-    target_group_label = "target_category"  # "target_group" # target_category
-    #attack_method_label = "attack_method"  # "attack_method", None
-    
-    MODEL_NAME = args.model.split("/")[-1]
-
-    input_path = f"data/results/{args.task_type}_classification/{MODEL_NAME}/{args.timestamp}.json"
-    # New implementation with the folder:
-    #input_path = f"data/results/{args.task_type}_classification/{MODEL_NAME}/{args.timestamp}/final_results.json"
-    plot_path = f"images/agreement/{MODEL_NAME}/agreement_matrix_{args.timestamp}.png"
-    pairwise_path = f"images/agreement/{MODEL_NAME}/pairwise_agreements_{args.timestamp}.csv"
-
     try:
-        with open(input_path, "r") as f:
+        with open(args.input_path, "r") as f:
             data = json.load(f)
     except Exception as e:
         print(f"Error loading file: {str(e)}")
         return
+    
+    #task_config, model_config, data_df = read_results()
 
     task_config = data["metadata"]["task_config"]
     model_config = data["metadata"]["model_config"]
 
-    assert model_config["name"].split('/')[-1] == MODEL_NAME, f"Model name mismatch: {model_config['name']} != {MODEL_NAME}"
+    MODEL_NAME = model_config["name"].split("/")[-1]
+    TIMESTAMP = args.input_path.split("/")[-2] # or [-1] in the old version
+    DATASET_NAME = data["metadata"]["dataset_name"]
 
-    DATASET_NAME = task_config["dataset_name"].replace("_", "-")
+    first_result_labels = data["results"][0]["true_labels"]
+    # extract the keys of the labels:
+    first_result_labels = list(first_result_labels.keys())
+    # label names
+    is_harmful_label = first_result_labels[0]
+    target_group_label = first_result_labels[1] if len(first_result_labels) > 1 else None
+    attack_method_label = first_result_labels[2] if len(first_result_labels) > 2 else None
     
+    #target_group_label = "target_category"  # "target_group" # target_category
+    #attack_method_label = "attack_method"  # "attack_method", None
+    
+
+    plot_path = f"images/agreement/{MODEL_NAME}/agreement_matrix_{TIMESTAMP}.png"
+    pairwise_path = f"images/agreement/{MODEL_NAME}/pairwise_agreements_{TIMESTAMP}.csv"
 
     predictions = data["results"]
     df = pd.DataFrame(predictions)
@@ -338,7 +330,7 @@ def main():
 
     # Extract predicted labels
     df["is_hate_speech"] = df["predicted_labels"].apply(lambda x: int(x[is_harmful_label]))
-    if DATASET_NAME == "facebook-hateful-memes":
+    if DATASET_NAME == "facebook":
         df["target_group"] = df["predicted_labels"].apply(lambda x: x["target_group"])
         df["attack_method"] = df["predicted_labels"].apply(lambda x: x["attack_method"])
     elif DATASET_NAME == "MMHS150K":
@@ -353,9 +345,7 @@ def main():
 
     # Define positions
     positions = get_positions(task_config)
-
     matrix_size = len(positions)
-
     # Create agreement matrix
     agreement_matrix = np.zeros((matrix_size, matrix_size))
     pairwise_results = []
