@@ -3,15 +3,14 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=100G
-#SBATCH --job-name=Q_32B_Y_lr
-#SBATCH --time=30:00:00
+#SBATCH --job-name=L70B_baseline
+#SBATCH --time=5:00:00
 #SBATCH --partition=gpu_cuda
 #SBATCH --qos=gpu
-#SBATCH --gres=gpu:h100:1
+#SBATCH --gres=gpu:h100:2
 #SBATCH --account=a_demartini
-#SBATCH -o slurm_output/slurm_Q_32B_Y_lr.o
-#SBATCH -e slurm_error/slurm_Q_32B_Y_lr.e
-#SBATCH --exclude=bun072,bun075
+#SBATCH -o slurm_output/slurm_L70B_baseline.o
+#SBATCH -e slurm_error/slurm_L70B_baseline.e
 
 module load anaconda3/2023.09-0
 source $EBROOTANACONDA3/etc/profile.d/conda.sh
@@ -19,8 +18,8 @@ conda activate vllm08
 module load cuda/12.2.0
 
 python -m src.scripts.8_content_classification_text \
-    --model "Qwen/Qwen2.5-32B-Instruct" \
-    --extreme_personas_type "extreme_pos_left_right_200" \
+    --model "meta-llama/Llama-3.1-70B-Instruct" \
+    --prompt_version "nopersona" \
     --run_description "" \
     --dataset_name "yoder" \
     --max_samples 10000

@@ -61,8 +61,8 @@ class FacebookHatefulMemesDataset(BaseDataset):
     ):
         # The processor is no longer needed here, as vLLM handles it.
         self.labels_relative_location = labels_relative_location
-        self.prompts = {}
         self.persona_ids = []
+        self.items = []
 
         super().__init__(
             data_path,
@@ -83,37 +83,39 @@ class FacebookHatefulMemesDataset(BaseDataset):
             with open(labels_path, "r") as f:
                 data.extend([json.loads(line) for line in f])
 
-        total_before = len(data)
-        data = [
-            item
-            for item in data
-            if len(item["gold_pc"]) == 1 and len(item["gold_attack"]) == 1
-        ]
-        ignored_items = total_before - len(data)
-        print(
-            f"===Ignored {ignored_items} items due to multiple labels in gold_pc or gold_attack==="
-        )
+        # total_before = len(data)
+        # data = [
+        #     item
+        #     for item in data
+        #     if len(item["gold_pc"]) == 1 and len(item["gold_attack"]) == 1
+        # ]
+        # ignored_items = total_before - len(data)
+        # print(
+        #     f"===Ignored {ignored_items} items due to multiple labels in gold_pc or gold_attack==="
+        # )
+
 
         if self.max_samples:
             random.seed(self.seed)
             data = random.sample(data, min(self.max_samples, len(data)))
 
+        seen_images = set()
         for item in data:
             img_path = Path(self.data_path) / item["img"]
-            if img_path.exists():
-                self.items.append(
-                    {
-                        "image_path": str(img_path),
-                        "labels": {
-                            "hate": item["gold_hate"],
-                            "pc": item["gold_pc"],
-                            "attack": item["gold_attack"],
-                        },
-                        "item_id": item["img"],
-                    }
-                )
+            if img_path.exists() and img_path not in seen_images:
+                self.items.append({
+                    "image_path": str(img_path),
+                    "labels": {
+                        "hate": item["gold_hate"],
+                        "pc": item["gold_pc"],
+                        "attack": item["gold_attack"],
+                    },
+                    "item_id": item["img"],
+                })
+                seen_images.add(img_path)
             else:
-                print(f"Image {img_path} does not exist. Skipping item.")
+                print(f"Image {img_path} does not exist or duplicate. Skipping item.")
+
         
         print(f"loaded a total of {len(self.items)} images")
 

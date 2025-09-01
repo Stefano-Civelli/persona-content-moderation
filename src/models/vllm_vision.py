@@ -63,6 +63,7 @@ class VisionVLLMModel(BaseModel, ABC):
         final_llm_kwargs.pop("seed", None)
         final_llm_kwargs.pop("max_tokens", None)
         final_llm_kwargs.pop("json_schema_class", None)
+        final_llm_kwargs.pop("resolution_factor", None)
 
         logger.info("=" * 70)
         logger.info("VLLM Parameters:")
@@ -174,10 +175,29 @@ class MiniCPMVLLMModel(VisionVLLMModel):
         )
 
 
+      
 class Idefics3VLLMModel(VisionVLLMModel):
     """
-    VLLM implementation for Idefics3 models.
+    VLLM implementation for Idefics3 models, with support for custom resolution.
     """
+
+    def get_model_specific_config(self) -> dict:
+
+        resolution_factor = self.additional_params.get("resolution_factor", 4)
+
+        target_longest_edge = resolution_factor * 364
+        
+        logger.info(
+            f"Configuring Idefics3 image resolution with longest_edge: {target_longest_edge}"
+        )
+
+        config = {
+            "mm_processor_kwargs": {
+                "size": {"longest_edge": target_longest_edge},
+            }
+        }
+        
+        return config
 
     def _format_prompt(self, text: str) -> str:
         return f"<|begin_of_text|>User:<image>{text}<end_of_utterance>\nAssistant:"

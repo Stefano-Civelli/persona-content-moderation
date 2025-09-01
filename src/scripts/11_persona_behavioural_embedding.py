@@ -2,228 +2,272 @@ import argparse
 import json
 import warnings
 from pathlib import Path
+from multiprocessing import Pool
+import itertools
+from functools import partial
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import seaborn as sns
 from sklearn.preprocessing import OneHotEncoder
 from umap import UMAP
 
 # Suppress a common UMAP warning about sparse matrix formats
-warnings.filterwarnings("ignore", message=".*The 'nopython' keyword argument was not supplied.*")
+warnings.filterwarnings(
+    "ignore", message=".*The 'nopython' keyword argument was not supplied.*"
+)
+
+# suppress OneHotEncoder warning
+warnings.filterwarnings(
+    "ignore", message=".*X does not have valid feature names, but OneHotEncoder was fitted with feature names.*"
+)
+
+warnings.filterwarnings(
+    "ignore", message=".*gradient function is not yet implemented for jaccard distance metric; inverse_transform will be unavailable.*"
+)
+
 
 def load_and_prepare_data(json_path: Path) -> tuple[pd.DataFrame, list[str]]:
     print(f"Loading data from {json_path}...")
-    with open(json_path, 'r') as f:
+    with open(json_path, "r") as f:
         data = json.load(f)
 
     results = data.get("results")
     if not results:
-        raise ValueError("JSON file does not contain a 'results' key or the list is empty.")
+        raise ValueError(
+            "JSON file does not contain a 'results' key or the list is empty."
+        )
 
     # Convert the list of dictionaries to a DataFrame
     df = pd.DataFrame(results)
+    #     item_id                                        true_labels                                   predicted_labels                                     raw_prediction  persona_id persona_pos
+    # 0  133743  {'is_hate_speech': False, 'target_category': '...  {'is_hate_speech': False, 'target_category': '...  {\n  "is_hate_speech": "false",\n  "target_cat...      116780    leftmost
+    # 1   28206  {'is_hate_speech': False, 'target_category': '...  {'is_hate_speech': False, 'target_category': '...  {\n  "is_hate_speech": "false",\n  "target_cat...      116780    leftmost
+    # 2   47889  {'is_hate_speech': True, 'target_category': 'm...  {'is_hate_speech': True, 'target_category': 'm...  {\n  "is_hate_speech": "true",\n  "target_cate...      116780    leftmost
 
     # The 'predicted_labels' column is a dictionary. We expand it into separate columns.
     # e.g., predicted_labels: {'is_hate_speech': False, ...} -> is_hate_speech | ...
     #                                                             False        | ...
-    pred_labels_df = df['predicted_labels'].apply(pd.Series)
-    df = pd.concat([df.drop(['predicted_labels', 'true_labels', 'raw_prediction'], axis=1), pred_labels_df], axis=1)
+    pred_labels_df = pd.json_normalize(df["predicted_labels"])
+    #     is_hate_speech target_category
+    # 0           False            none
+    # 1           False            none
+    # 2            True  muslims/arabic
 
+    df = pd.concat(
+        [
+            df.drop(["predicted_labels", "true_labels", "raw_prediction"], axis=1),
+            pred_labels_df,
+        ],
+        axis=1,
+    )
+    
     # Identify the label columns we need to encode
     label_cols = list(pred_labels_df.columns)
     print(f"Identified prediction labels: {label_cols}")
 
     # Critical Step: Ensure a consistent order of items for all personas
-    df = df.sort_values(by='item_id').reset_index(drop=True)
-    
+    df = df.sort_values(by="item_id").reset_index(drop=True)
+
     # Check for missing data
     if df[label_cols].isnull().values.any():
-        print("Warning: Missing values found in predicted labels. Filling with 'missing'.")
-        df[label_cols] = df[label_cols].fillna('missing')
-
+        print(
+            "Warning: Missing values found in predicted labels. Filling with 'missing'."
+        )
+        df[label_cols] = df[label_cols].fillna("missing")
 
     # Convert boolean labels to string to handle them uniformly with other categorical labels
     for col in label_cols:
-        if df[col].dtype == 'bool':
+        if df[col].dtype == "bool":
             df[col] = df[col].astype(str)
 
-    print(f"Loaded {df['item_id'].nunique()} unique items and {df['persona_id'].nunique()} unique personas.")
+    print(
+        f"Loaded {df['item_id'].nunique()} unique items and {df['persona_id'].nunique()} unique personas."
+    )
     return df, label_cols
 
 
 def create_persona_feature_vectors(df: pd.DataFrame, label_cols: list[str]) -> tuple[np.ndarray, pd.DataFrame]:
-    print("Creating feature vectors for each persona...")
+    """
+    Creates feature vectors for each persona using a highly efficient, vectorized approach.
+    """
+    print("Creating feature vectors for each persona (vectorized approach)...")
     
     # Get unique personas and their political compass positions
-    persona_info = df[['persona_id', 'persona_pos']].drop_duplicates().set_index('persona_id')
-    persona_ids = persona_info.index.tolist()
+    persona_info = df[['persona_id', 'persona_pos']].drop_duplicates().sort_values('persona_id').reset_index(drop=True)
+    num_personas = persona_info.shape[0]
+    num_items = df['item_id'].nunique()
 
-    # Create one-hot encoders for each label type
-    encoders = {}
+    # --- Vectorized One-Hot Encoding ---
+    # Sort by persona then item to ensure a consistent order for reshaping later.
+    df_sorted = df.sort_values(by=['persona_id', 'item_id']).reset_index(drop=True)
+
     for col in label_cols:
-        # Fit the encoder on all possible values in the dataset to ensure consistency
-        encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
-        encoder.fit(df[[col]])
-        encoders[col] = encoder
-        print(f"  - Label '{col}' has categories: {encoder.categories_[0]}")
-
-    persona_vectors = []
-    for persona_id in persona_ids:
-        # Get all predictions for the current persona, already sorted by item_id
-        persona_df = df[df['persona_id'] == persona_id]
+        df_sorted[col] = df_sorted[col].astype('category')
         
-        # This list will hold the one-hot encoded vectors for each prediction (for this persona)
-        all_encoded_parts = []
-
-        for _, row in persona_df.iterrows():
-            # For each item, concatenate the one-hot vectors of its labels
-            item_vector_parts = []
-            for col in label_cols:
-                # Reshape is needed as encoder expects a 2D array
-                value_to_encode = np.array([[row[col]]])
-                encoded_vector = encoders[col].transform(value_to_encode)
-                item_vector_parts.append(encoded_vector.flatten())
-            
-            # Concatenate all label parts for this single item
-            all_encoded_parts.extend(item_vector_parts)
-            
-        # Concatenate all item vectors into one giant vector for the persona
-        full_persona_vector = np.concatenate(all_encoded_parts)
-        persona_vectors.append(full_persona_vector)
+    encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False, drop=None) # cuML needs sparse=False
     
-    feature_matrix = np.array(persona_vectors)
-    print(f"Successfully created feature matrix of shape: {feature_matrix.shape}")
-    print(f"(Each of the {feature_matrix.shape[0]} personas is represented by a vector of length {feature_matrix.shape[1]})")
+    # This single call replaces all the loops from the original function.
+    encoded_data = encoder.fit_transform(df_sorted[label_cols])
+    
+    # The output is a 2D array of shape (num_personas * num_items, total_encoded_features).
+    # We reshape it into a 3D array (personas, items, features) and then flatten the last two dims.
+    # This creates one long vector per persona.
+    # The -1 automatically calculates the length of the feature vector per persona.
+    feature_matrix = encoded_data.reshape(num_personas, -1)
 
-    return feature_matrix, persona_info.reset_index()
+    print(f"CPU feature matrix created with shape: {feature_matrix.shape}")
+    return feature_matrix, persona_info
 
 
-def reduce_and_visualize(
-    feature_matrix: np.ndarray,
-    persona_info: pd.DataFrame,
-    output_path: Path,
-    n_neighbors: int,
-    min_dist: float,
-    random_state: int
-) -> None:
-    print("Applying UMAP for dimensionality reduction...")
+def run_single_experiment(args_tuple):
+    """
+    Run a single UMAP experiment with given parameters and save the embedding data.
+    """
+    feature_matrix, persona_info, n_neighbors, min_dist, run_id, base_output_path, model_name = args_tuple
+    
+    print(f"Running experiment: n_neighbors={n_neighbors}, min_dist={min_dist}, run={run_id}")
+    
+    # Apply UMAP
     reducer = UMAP(
-        n_components=2, # 5
+        n_components=2,
         n_neighbors=n_neighbors,
         min_dist=min_dist,
-        random_state=random_state,
-        metric='jaccard' # Jaccard is often a good choice for binary/categorical data
+        metric="jaccard",  # Jaccard is often a good choice for binary/categorical data
+        # No random_state set to allow for different results across runs
     )
     embedding = reducer.fit_transform(feature_matrix)
-    print(f"Reduced dimensions to {embedding.shape}")
-
-    # Add embedding coordinates to the persona_info DataFrame for plotting
-    persona_info['umap1'] = embedding[:, 0]
-    persona_info['umap2'] = embedding[:, 1]
     
-    # --- Visualization ---
-    print(f"Generating plot and saving to {output_path}...")
-    plt.style.use('seaborn-v0_8-whitegrid')
-    fig, ax = plt.subplots(figsize=(12, 10))
-
-    # Define a color palette for the corners
-    corner_colors = {
-        "top_left": "blue",
-        "top_right": "green",
-        "bottom_left": "purple",
-        "bottom_right": "red"
-    }
-
-    sns.scatterplot(
-        data=persona_info,
-        x='umap1',
-        y='umap2',
-        hue='persona_pos',
-        palette=corner_colors,
-        s=150,  # size of points
-        ax=ax,
-        edgecolor='black',
-        alpha=0.8
-    )
-
-    # Add annotations (persona_id) to each point
-    for i, row in persona_info.iterrows():
-        ax.text(
-            row['umap1'] + 0.05, 
-            row['umap2'] + 0.05, 
-            row['persona_id'], 
-            fontsize=9,
-            fontstyle='italic',
-            color='gray'
-        )
-
-    ax.set_title("Persona Clustering based on Harmful Content Predictions (UMAP)", fontsize=16, weight='bold')
-    ax.set_xlabel("UMAP Dimension 1", fontsize=12)
-    ax.set_ylabel("UMAP Dimension 2", fontsize=12)
-    ax.legend(title="Political Compass Corner", bbox_to_anchor=(1.05, 1), loc='upper left')
-
-    plt.tight_layout()
+    # Create a copy of persona_info for this experiment
+    persona_info_copy = persona_info.copy()
+    persona_info_copy["umap1"] = embedding[:, 0]
+    persona_info_copy["umap2"] = embedding[:, 1]
+    
+    # Add experiment metadata
+    persona_info_copy["n_neighbors"] = n_neighbors
+    persona_info_copy["min_dist"] = min_dist
+    persona_info_copy["run_id"] = run_id
+    persona_info_copy["model_name"] = model_name
+    
+    # Create output filename for CSV
+    output_filename = f"embedding_data_n{n_neighbors}_dist{min_dist}_run{run_id}.csv"
+    output_path = base_output_path / output_filename
+    
     # Ensure output directory exists
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    plt.close(fig)
-    print("Done.")
+    
+    # Save the embedding data
+    persona_info_copy.to_csv(output_path, index=False)
+    
+    print(f"Saved embedding data to: {output_path}")
+    return output_path
 
 
 def main():
-    """Main function to parse arguments and run the analysis."""
+    """Main function to parse arguments and run multiple experiments."""
     parser = argparse.ArgumentParser(
-        description="Visualize persona clusters from classification results using UMAP.",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+        description="Generate persona embeddings from classification results using UMAP with multiple parameter combinations.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
-        "-i", "--input_file",
+        "--task_type", type=str, default="text", help="Type of task"
+    )  # text, img
+    parser.add_argument(
+        "--timestamp",
         type=str,
-        default="data/results/text_classification/Qwen2.5-32B-Instruct/20250703_150720.json",
-        help="Path to the JSON file containing classification results."
+        default="20250713_103643",
     )
     parser.add_argument(
-        "-o", "--output_file",
+        "--model",
         type=str,
-        default="images/behavioural_embeddings",
-        help="Path to save the output PNG plot."
+        default="Qwen/Qwen2.5-32B-Instruct",
+        help="Model name/path",
     )
     parser.add_argument(
-        "--n_neighbors",
+        "--n_neighbors_list",
         type=int,
-        default=3, #15
-        help="UMAP: The size of local neighborhood (in terms of number of samples)."
+        nargs='+',
+        default=[5],
+        help="List of n_neighbors values to test",
     )
     parser.add_argument(
-        "--min_dist",
+        "--min_dist_list",
         type=float,
-        default=0.1, #0.0
-        help="UMAP: The effective minimum distance between embedded points."
+        nargs='+',
+        default=[0.1, 0.5],
+        help="List of min_dist values to test",
     )
     parser.add_argument(
-        "--seed",
+        "--num_runs",
         type=int,
-        default=42,
-        help="Random seed for UMAP to ensure reproducibility."
+        default=2,
+        help="Number of runs for each parameter combination",
+    )
+    parser.add_argument(
+        "--num_processes",
+        type=int,
+        default=6,
+        help="Number of processes to use for multiprocessing",
     )
 
     args = parser.parse_args()
 
-    
+    MODEL_NAME = args.model.split("/")[-1]
 
-    # --- Execute the Action Plan ---
-    df, label_cols = load_and_prepare_data(args.input_file)
-    feature_matrix, persona_info = create_persona_feature_vectors(df, label_cols)
-    reduce_and_visualize(
-        feature_matrix,
-        persona_info,
-        Path(args.output_file),
-        n_neighbors=args.n_neighbors,
-        min_dist=args.min_dist,
-        random_state=args.seed
+    input_file = Path(
+        f"data/results/{args.task_type}_classification/{MODEL_NAME}/{args.timestamp}/final_results.json"
     )
+    base_output_path = Path(
+        f"data/results/behavioural_embeddings/{MODEL_NAME}/{args.timestamp}"
+    )
+
+    # --- Load and prepare data once ---
+    print("="*70)
+    print("LOADING DATA (This will be done only once)")
+    print("="*70)
+    df, label_cols = load_and_prepare_data(input_file)
+    print(f"Loaded {len(df)} rows of data.")
+    
+    feature_matrix, persona_info = create_persona_feature_vectors(df, label_cols)
+    print(f"Feature matrix shape: {feature_matrix.shape}")
+    print(f"Persona info shape: {persona_info.shape}")
+    print("="*70)
+    print()
+
+    # --- Generate all parameter combinations ---
+    param_combinations = list(itertools.product(
+        args.n_neighbors_list,
+        args.min_dist_list,
+        range(1, args.num_runs + 1)  # Run IDs from 1 to num_runs
+    ))
+    
+    print(f"Total experiments to run: {len(param_combinations)}")
+    print("Parameter combinations:")
+    for i, (n_neighbors, min_dist, run_id) in enumerate(param_combinations):
+        print(f"  {i+1}. n_neighbors={n_neighbors}, min_dist={min_dist}, run={run_id}")
+    print()
+
+    # --- Prepare arguments for multiprocessing ---
+    experiment_args = [
+        (feature_matrix, persona_info, n_neighbors, min_dist, run_id, base_output_path, MODEL_NAME)
+        for n_neighbors, min_dist, run_id in param_combinations
+    ]
+
+    # --- Run experiments using multiprocessing ---
+    print("="*70)
+    print("RUNNING EXPERIMENTS")
+    print("="*70)
+    
+    with Pool(processes=args.num_processes) as pool:
+        results = pool.map(run_single_experiment, experiment_args)
+    
+    print("="*70)
+    print("ALL EXPERIMENTS COMPLETED")
+    print("="*70)
+    print("Generated embedding data files:")
+    for result in results:
+        print(f"  {result}")
+    print(f"\nTotal data files generated: {len(results)}")
+
 
 if __name__ == "__main__":
     main()

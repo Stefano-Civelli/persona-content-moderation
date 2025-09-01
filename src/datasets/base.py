@@ -26,6 +26,7 @@ class BaseDataset(Dataset, ABC):
     ):
         self.data_path = data_path
         self.prompts_file = prompts_file
+        self.prompts = {}
         self.max_samples = max_samples
         self.extreme_pos_personas_path = extreme_pos_personas_path
         self.prompt_template = prompt_template
@@ -45,6 +46,22 @@ class BaseDataset(Dataset, ABC):
 
     def load_and_build_prompts(self):
         logger.info("=" * 70)
+        # Handle the case where no personas are used (baseline)
+        if self.extreme_pos_personas_path is None:
+            logger.info("No personas path provided. Using baseline setup with default prompt...")
+            
+            # Create a single default prompt entry
+            default_persona_id = "default"
+            default_prompt = self.prompt_template
+            
+            self.prompts[default_persona_id] = (default_prompt, "baseline")
+            self.persona_ids = [default_persona_id]
+            
+            logger.info(f"Created baseline setup with default prompt: {default_prompt}")
+            logger.info("=" * 70 + "\n")
+            return
+        
+        # Original persona loading logic
         logger.info("Loading extreme personas and building prompts...")
         with open(self.extreme_pos_personas_path, 'rb') as f:
             extreme_pos_personas = pickle.load(f)

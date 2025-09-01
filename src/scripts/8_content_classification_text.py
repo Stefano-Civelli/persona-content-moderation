@@ -1,6 +1,9 @@
 import logging
 import vllm  # Ensure vLLM is imported before torch to avoid conflicts even if it's not used in this file
 from typing import Dict, Any, List, Tuple
+import json
+import glob
+
 
 import torch
 import pandas as pd
@@ -79,6 +82,65 @@ class ClassificationPipeline:
         self.batch_size = batch_size
         self.num_workers = num_workers
 
+    def load_previous_batch_results(self, start_batch: int) -> List[Dict[str, Any]]:
+        """Load results from previous batches when resuming from a checkpoint."""
+        all_previous_results = []
+        batch_dir = os.path.join(self.output_path, "batches")
+        
+        if not os.path.exists(batch_dir):
+            logger.warning(f"Batch directory {batch_dir} does not exist. Starting with empty results.")
+            return all_previous_results
+        
+        logger.info(f"Loading previous batch results from {batch_dir}")
+        
+        # Get all batch files and sort them by start item number
+        all_batch_files = glob.glob(os.path.join(batch_dir, "results_*.json"))
+        batch_files_info = []
+        
+        for file_path in all_batch_files:
+            filename = os.path.basename(file_path)
+            try:
+                # Extract start and end items from filename like "results_0-49999.json"
+                range_part = filename.replace("results_", "").replace(".json", "")
+                start_item, end_item = map(int, range_part.split('-'))
+                batch_files_info.append((start_item, end_item, file_path))
+            except (IndexError, ValueError) as e:
+                logger.warning(f"Could not parse filename {filename}: {e}")
+                continue
+        
+        # Sort by start item
+        batch_files_info.sort(key=lambda x: x[0])
+        
+        # Only load batches that come before start_batch
+        start_item_threshold = start_batch * self.batch_size
+        
+        for start_item, end_item, file_path in batch_files_info:
+            # Only load if this batch is completely before our start_batch
+            if start_item < start_item_threshold:
+                logger.info(f"Loading batch file {os.path.basename(file_path)} (items {start_item}-{end_item})")
+                try:
+                    with open(file_path, 'r') as f:
+                        batch_data = json.load(f)
+                        # Handle different possible structures
+                        if isinstance(batch_data, list):
+                            all_previous_results.extend(batch_data)
+                        elif isinstance(batch_data, dict):
+                            if 'results' in batch_data:
+                                all_previous_results.extend(batch_data['results'])
+                            elif 'data' in batch_data:
+                                all_previous_results.extend(batch_data['data'])
+                            else:
+                                logger.warning(f"Unknown structure in {file_path}, trying to use as list")
+                                all_previous_results.extend([batch_data])
+                except Exception as e:
+                    logger.error(f"Error loading batch file {file_path}: {e}")
+                    continue
+            else:
+                logger.info(f"Skipping batch file {os.path.basename(file_path)} (starts at item {start_item}, beyond threshold {start_item_threshold})")
+        
+        logger.info(f"Loaded {len(all_previous_results)} results from previous batches")
+        return all_previous_results
+
     def run(
         self, start_batch: int = 0
     ) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, float]]]:
@@ -92,7 +154,12 @@ class ClassificationPipeline:
             collate_fn=custom_collate_fn,  # Using a simple collate for text
         )
 
+        # Load previous results if starting from a later batch
         all_results = []
+        if start_batch > 0:
+            all_results = self.load_previous_batch_results(start_batch)
+            logger.info(f"Resuming from batch {start_batch} with {len(all_results)} previous results")
+        
         logger.info(
             f"Processing {len(self.dataset)} items in batches of {self.batch_size}..."
         )
@@ -182,17 +249,17 @@ def main():
     parser.add_argument(
         "--prompt_version",
         type=str,
-        default="v1",
+        default="nopersona", # v1, nopersona
     )
     parser.add_argument(
         "--extreme_personas_type",
         type=str,
-        default="extreme_pos_left_right_200",  # extreme_pos_left_right
+        default=None,  # None, extreme_pos_corners_100_centered
     )
     parser.add_argument(
         "--dataset_name",
         type=str,
-        default="yoder",  # subdata, yoder
+        default="subdata",  # subdata, yoder, cad
     )
     parser.add_argument(
         "--max_samples",
@@ -211,7 +278,18 @@ def main():
         default="",
         help="A short description for the run, to be saved in the metadata.",
     )
+    parser.add_argument(
+        "--timestamp",
+        type=str,
+        default=None,
+        help="Timestamp folder name to resume from (required when start_batch > 0)",
+    )
     args = parser.parse_args()
+
+    # Validate arguments
+    if args.start_batch > 0 and args.timestamp is None:
+        logger.error("--timestamp is required when --start_batch > 0")
+        return
 
     config, prompt_templates = load_config()
     task_config = config[f"{args.task_type}_config"]
@@ -219,28 +297,52 @@ def main():
     if not model_config:
         logger.error(f"Model '{args.model}' not found in task '{args.task_type}'.")
         return
+    
 
-    prompt_template = prompt_templates[args.dataset_name][
+    template_name = args.dataset_name if args.dataset_name != 'cad' else "subdata"
+    prompt_template = prompt_templates[template_name][
         args.prompt_version
     ]["template"]
 
     MODEL = args.model
 
-    task_config["extreme_pos_path"] = (
-        task_config["extreme_pos_path"]
-        .replace("[MODEL_NAME]", MODEL.split("/")[-1])
-        .replace("[TYPE]", args.extreme_personas_type)
-    )
-    task_config["output_path"] = (
-        task_config["output_path"]
-        .replace("[MODEL_NAME]", MODEL.split("/")[-1])
-        .replace("[DATETIME]", pd.Timestamp.now().strftime("%Y%m%d_%H%M%S"))
-    )
-    os.makedirs(os.path.dirname(task_config["output_path"]), exist_ok=True)
-
+    extreme_pos_personas_path = None
+    if args.extreme_personas_type is not None:
+        extreme_pos_personas_path = (
+            task_config["extreme_pos_path"]
+            .replace("[MODEL_NAME]", MODEL.split("/")[-1])
+            .replace("[TYPE]", args.extreme_personas_type)
+        )
+        task_config["extreme_pos_path"] = extreme_pos_personas_path
+    
+    # Handle output path - use provided timestamp or create new one
+    if args.timestamp:
+        # Use the provided timestamp for resuming
+        task_config["output_path"] = (
+            task_config["output_path"]
+            .replace("[MODEL_NAME]", MODEL.split("/")[-1])
+            .replace("[DATETIME]", args.timestamp)
+        )
+        logger.info(f"Resuming from timestamp: {args.timestamp}")
+    else:
+        # Create new timestamp for new run
+        timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
+        task_config["output_path"] = (
+            task_config["output_path"]
+            .replace("[MODEL_NAME]", MODEL.split("/")[-1])
+            .replace("[DATETIME]", timestamp)
+        )
+        logger.info(f"Starting new run with timestamp: {timestamp}")
+    
+    # Create output directories
+    os.makedirs(task_config["output_path"], exist_ok=True)
+    os.makedirs(os.path.join(task_config["output_path"], "batches"), exist_ok=True)
 
     logger.info("=" * 70)
-    logger.info(f"Extreme personas path: {task_config['extreme_pos_path']}")
+    if extreme_pos_personas_path:
+        logger.info(f"Extreme personas path: {extreme_pos_personas_path}")
+    else:
+        logger.info("Running in baseline mode (no personas)")
     logger.info(f"Output path: {task_config['output_path']}")
     logger.info(f"Using model: {MODEL}")
     logger.info("=" * 70 + "\n")
@@ -259,18 +361,24 @@ def main():
             seed=task_config["dataset_seed"],
             fold=task_config["fold"],
             target_group_size=task_config["target_group_size"],
-            extreme_pos_personas_path=task_config["extreme_pos_path"],
+            extreme_pos_personas_path=extreme_pos_personas_path,
             prompt_template=prompt_template,
         )
         json_schema_class = IdentityContentClassification
-    elif "subdata" in args.dataset_name.lower():
+    elif "subdata" in args.dataset_name.lower() or "cad" in args.dataset_name.lower():
         aspects = ["is_hate_speech"]
+        if args.dataset_name == "subdata":
+            data_path = "data_path_subdata"
+        elif args.dataset_name == "cad":
+            data_path = "data_path_cad"
+        else:
+            raise ValueError(f"Unsupported dataset_name: '{args.dataset_name}'. Expected 'subdata' or 'cad'.")
 
         dataset = SubdataTextDataset(
-            data_path=task_config["data_path_subdata"],
+            data_path=task_config[data_path],
             tokenizer=tokenizer,
             max_samples=args.max_samples,
-            extreme_pos_personas_path=task_config["extreme_pos_path"],
+            extreme_pos_personas_path=extreme_pos_personas_path,
             prompt_template=prompt_template,
             seed=task_config["dataset_seed"],
             split="political",
@@ -281,7 +389,6 @@ def main():
         return
 
     logger.info(f"Dataset size: {len(dataset)}")
-
 
     model = VLLMModel(
         model_id=MODEL,
@@ -294,7 +401,6 @@ def main():
         tensor_parallel_size=model_config.get("tensor_parallel_size", 1),
         json_schema_class=json_schema_class,
     )
-
 
     parser = HateSpeechJsonParser(json_schema_class=json_schema_class)
     evaluator = ClassificationEvaluator(aspects=aspects)
@@ -325,6 +431,9 @@ def main():
         "timestamp": pd.Timestamp.now().isoformat(),
         "model_class": model.__class__.__name__,
         "dataset_class": dataset.__class__.__name__,
+        "start_batch": args.start_batch,
+        "resumed_from_timestamp": args.timestamp,
+        "baseline_mode": extreme_pos_personas_path is None,
     }
 
     final_results_path = os.path.join(task_config["output_path"], "final_results.json")

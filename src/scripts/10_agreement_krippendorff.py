@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 import simpledorff
 import os
+from tqdm import tqdm
 
 # NOTE ON THE CHANGE OF METRIC:
 # This script has been modified to use Krippendorff's Alpha instead of Cohen's Kappa.
@@ -45,6 +46,22 @@ POSSIBLE_VALUES = {
     "MMHS150K": {
         "harmful": [0, 1],
         "target_group": ["Racist", "Sexist", "Homophobe", "Religion", "OtherHate"],
+    },
+    "yoder": {
+        "is_hate_speech": [0, 1],
+        "target_group": [
+            "women",
+            "black",
+            "lgbtq+",
+            "muslims/arabic",
+            "asian",
+            "latino/hispanic",
+            "jews",
+            "white",
+            "men",
+            "christians",
+            "none",
+        ],
     },
 }
 
@@ -160,44 +177,78 @@ def compute_inter_agreement(df, pos1, pos2):
     print(f"\nComputing inter-agreement between {pos1} and {pos2}")
 
     # Identify which label columns are present in the dataframe
-    label_cols = [
-        col for col in ["harmful", "target_group", "attack_method"] if col in df.columns
-    ]
+    labels = list(df.columns[4:])
 
-    # Filter for the two groups you want to compare
-    combined_df = df[df["persona_pos"].isin([pos1, pos2])]
+    # Get personas from each position
+    pos1_personas = df[df["persona_pos"] == pos1]["persona_id"].unique()
+    pos2_personas = df[df["persona_pos"] == pos2]["persona_id"].unique()
 
-    # Krippendorff's Alpha requires at least 2 annotators.
-    if combined_df["persona_id"].nunique() < 2:
-        print(
-            f"Warning: Not enough unique annotators for positions {pos1} and {pos2}. Skipping."
-        )
+    if len(pos1_personas) == 0 or len(pos2_personas) == 0:
+        print(f"Warning: No personas found for one or both positions {pos1} and {pos2}. Skipping.")
         return np.nan
 
-    alphas = []
-    for label in label_cols:
-        print(f"Processing label: {label}")
-        # Calculate Krippendorff's Alpha for the combined group on a single label
-        alpha_score = simpledorff.calculate_krippendorffs_alpha_for_df(
-            combined_df,
-            experiment_col="item_id",
-            annotator_col="persona_id",
-            class_col=label,
-        )
-        if not np.isnan(alpha_score):
-            alphas.append(alpha_score)
-            print(f"Krippendorff's Alpha for {label}: {alpha_score:.3f}")
+    print(f"Found {len(pos1_personas)} personas in {pos1} and {len(pos2_personas)} personas in {pos2}")
 
-    # Return the average Alpha across all labels
-    return np.mean(alphas) if alphas else np.nan
+    # Calculate pairwise agreements between personas from different groups
+    all_pairwise_alphas = []
+    
+    for persona1 in tqdm(pos1_personas):
+        for persona2 in pos2_personas:
+            
+            # Create a dataset with only these two personas
+            pair_df = df[df["persona_id"].isin([persona1, persona2])]
+            
+            if pair_df.empty or pair_df["persona_id"].nunique() < 2:
+                print(f"    Warning: Not enough data for personas {persona1} and {persona2}. Skipping.")
+                continue
+            
+            # Calculate Krippendorff's Alpha for each label
+            pair_alphas = []
+            for label in labels:
+                try:
+                    # Check if there's enough variability in the data
+                    label_values = pair_df[label].values
+                    unique_values = np.unique(label_values)
+                    
+                    # If all values are the same, perfect agreement
+                    if len(unique_values) == 1:
+                        alpha_score = 1.0
+                        print(f"    Perfect agreement (all same values) for {label}: {alpha_score}")
+                    else:
+                        alpha_score = simpledorff.calculate_krippendorffs_alpha_for_df(
+                            pair_df,
+                            experiment_col="item_id",
+                            annotator_col="persona_id",
+                            class_col=label,
+                        )
+                    
+                    if not np.isnan(alpha_score):
+                        pair_alphas.append(alpha_score)
+                        
+                except (ZeroDivisionError, ValueError) as e:
+                    print(f"    Error calculating alpha for {label}: {e}")
+                    # Skip this label for this pair
+                    continue
+            
+            # Average across labels for this persona pair
+            if pair_alphas:
+                pair_avg_alpha = np.mean(pair_alphas)
+                all_pairwise_alphas.append(pair_avg_alpha)
+
+    # Return the average of all pairwise inter-group agreements
+    if all_pairwise_alphas:
+        final_inter_alpha = np.mean(all_pairwise_alphas)
+        print(f"Final inter-group agreement between {pos1} and {pos2}: {final_inter_alpha:.3f}")
+        return final_inter_alpha
+    else:
+        print(f"No valid pairwise agreements found between {pos1} and {pos2}")
+        return np.nan
 
 
 def compute_intra_agreement(df, pos):
     print(f"\nComputing intra-agreement for {pos}")
 
-    label_cols = [
-        col for col in ["harmful", "target_group", "attack_method"] if col in df.columns
-    ]
+    labels = list(df.columns[4:])
 
     # Filter for the specific group
     group_df = df[df["persona_pos"] == pos]
@@ -207,7 +258,7 @@ def compute_intra_agreement(df, pos):
         return np.nan
 
     alphas = []
-    for label in label_cols:
+    for label in labels:
         print(f"Processing label: {label}")
         # Calculate Krippendorff's Alpha for the group on a single label
         alpha_score = simpledorff.calculate_krippendorffs_alpha_for_df(
@@ -257,7 +308,7 @@ def main():
     target_group_label = first_result_labels[1] if len(first_result_labels) > 1 else None
     attack_method_label = first_result_labels[2] if len(first_result_labels) > 2 else None
 
-    plot_path = f"images/agreement/{MODEL_NAME}/agreement_matrix_{TIMESTAMP}.png"
+    plot_path = f"images/agreement/{MODEL_NAME}/agreement_matrix_{TIMESTAMP}_krippendorff.png"
     pairwise_path = f"images/agreement/{MODEL_NAME}/pairwise_agreements_{TIMESTAMP}.csv"
 
     predictions = data["results"]
@@ -287,6 +338,7 @@ def main():
         return
 
     df = df.drop(["predicted_labels", "true_labels"], axis=1)
+    # columns ['item_id', 'true_labels', 'predicted_labels', 'raw_prediction', 'persona_id', 'persona_pos']
 
     positions = get_positions(task_config)
     matrix_size = len(positions)

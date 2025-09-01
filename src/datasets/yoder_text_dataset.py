@@ -71,7 +71,6 @@ class YoderIdentityDataset(BaseDataset):
         **additional_params: Any,
     ):
         self.tokenizer = tokenizer
-        self.prompts = {}
         self.persona_ids = []
         self.data_df = None
         self.text_field = text_field

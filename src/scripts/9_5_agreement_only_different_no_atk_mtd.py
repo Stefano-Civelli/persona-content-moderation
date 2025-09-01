@@ -136,17 +136,59 @@ def perform_mann_whitney_test(group1, group2, label_name, pos1, pos2):
         return None
 
 
-def save_comprehensive_report(kappa_df, ac1_df, raw_agreement_df, descriptive_stats, test_results, positions, output_path, agreement_summary):
+def identify_disagreement_items(df, positions):
+    """
+    Identify items where personas disagree on 'is_hate_speech' predictions.
+    
+    Args:
+        df: DataFrame with predictions
+        positions: List of position names
+        
+    Returns:
+        set: Item IDs where there is disagreement on 'is_hate_speech'
+    """
+    disagreement_items = set()
+    
+    # Group by item_id to check predictions across all personas for each item
+    for item_id, item_group in df.groupby('item_id'):
+        hate_speech_predictions = item_group['is_hate_speech'].unique()
+        
+        # If there's more than one unique prediction, there's disagreement
+        if len(hate_speech_predictions) > 1:
+            disagreement_items.add(item_id)
+    
+    print(f"\nDisagreement Analysis:")
+    print(f"Total items: {df['item_id'].nunique()}")
+    print(f"Items with disagreement on 'is_hate_speech': {len(disagreement_items)}")
+    print(f"Items with unanimous agreement: {df['item_id'].nunique() - len(disagreement_items)}")
+    print(f"Percentage of items with disagreement: {len(disagreement_items) / df['item_id'].nunique() * 100:.2f}%")
+    
+    return disagreement_items
+
+
+def save_comprehensive_report(kappa_df, ac1_df, raw_agreement_df, descriptive_stats, test_results, positions, output_path, agreement_summary, disagreement_stats):
    
     with open(output_path, 'w') as f:
         f.write("COMPREHENSIVE STATISTICAL ANALYSIS REPORT\n")
+        f.write("(Agreement computed only on items with disagreement in 'is_hate_speech' predictions)\n")
         f.write("=" * 80 + "\n\n")
+        
+        # 0a. Disagreement Statistics
+        f.write("0a. DISAGREEMENT FILTERING STATISTICS\n")
+        f.write("-" * 40 + "\n\n")
+        
+        f.write(f"Total items in dataset: {disagreement_stats['total_items']}\n")
+        f.write(f"Items with disagreement on 'is_hate_speech': {disagreement_stats['disagreement_items']}\n")
+        f.write(f"Items with unanimous agreement: {disagreement_stats['unanimous_items']}\n")
+        f.write(f"Percentage of items with disagreement: {disagreement_stats['disagreement_percentage']:.2f}%\n")
+        f.write(f"Items used for agreement analysis: {disagreement_stats['disagreement_items']}\n")
+        f.write("\n")
         
         # 0. Agreement Summary Statistics
         f.write("0. AGREEMENT SUMMARY STATISTICS\n")
         f.write("-" * 40 + "\n\n")
         
-        f.write("Mean Agreement Values:\n")
+        f.write("Mean Agreement Values (computed only on disagreement items):\n")
         f.write(f"Intra-position agreement (diagonal):\n")
         f.write(f"  Raw Agreement: {agreement_summary['intra_raw_mean']:.4f} ± {agreement_summary['intra_raw_std']:.4f} (n={agreement_summary['intra_count']})\n")
         f.write(f"  Cohen's Kappa: {agreement_summary['intra_kappa_mean']:.4f} ± {agreement_summary['intra_kappa_std']:.4f} (n={agreement_summary['intra_count']})\n")
@@ -177,7 +219,7 @@ def save_comprehensive_report(kappa_df, ac1_df, raw_agreement_df, descriptive_st
         f.write("\n\n")
 
         # 1. Agreement Matrices
-        f.write("1. AGREEMENT MATRICES\n")
+        f.write("1. AGREEMENT MATRICES (Disagreement Items Only)\n")
         f.write("-" * 40 + "\n\n")
         
         f.write("Cohen's Kappa Agreement Matrix:\n")
@@ -193,7 +235,7 @@ def save_comprehensive_report(kappa_df, ac1_df, raw_agreement_df, descriptive_st
         f.write("\n\n")
         
         # 2. Descriptive Statistics
-        f.write("2. DESCRIPTIVE STATISTICS BY POSITION\n")
+        f.write("2. DESCRIPTIVE STATISTICS BY POSITION (Disagreement Items Only)\n")
         f.write("-" * 40 + "\n\n")
         
         if descriptive_stats:
@@ -220,7 +262,7 @@ def save_comprehensive_report(kappa_df, ac1_df, raw_agreement_df, descriptive_st
             f.write("No descriptive statistics available.\n\n")
         
         # 3. Statistical Tests Summary
-        f.write("3. STATISTICAL TESTS SUMMARY\n")
+        f.write("3. STATISTICAL TESTS SUMMARY (Disagreement Items Only)\n")
         f.write("-" * 40 + "\n\n")
         
         if test_results:
@@ -240,7 +282,7 @@ def save_comprehensive_report(kappa_df, ac1_df, raw_agreement_df, descriptive_st
             f.write("No statistical tests performed.\n\n")
         
         # 4. Detailed Statistical Comparisons
-        f.write("4. DETAILED STATISTICAL COMPARISONS\n")
+        f.write("4. DETAILED STATISTICAL COMPARISONS (Disagreement Items Only)\n")
         f.write("-" * 40 + "\n\n")
         
         if test_results:
@@ -273,7 +315,7 @@ def save_comprehensive_report(kappa_df, ac1_df, raw_agreement_df, descriptive_st
             f.write("No detailed comparisons available.\n\n")
         
         # 5. Statistical Test Results Table
-        f.write("5. COMPLETE STATISTICAL TEST RESULTS TABLE\n")
+        f.write("5. COMPLETE STATISTICAL TEST RESULTS TABLE (Disagreement Items Only)\n")
         f.write("-" * 40 + "\n\n")
         
         if test_results:
@@ -303,7 +345,12 @@ def save_comprehensive_report(kappa_df, ac1_df, raw_agreement_df, descriptive_st
         
         f.write("Statistical significance:\n")
         f.write("  p < 0.05: statistically significant\n")
-        f.write("  p ≥ 0.05: not statistically significant\n")
+        f.write("  p ≥ 0.05: not statistically significant\n\n")
+        
+        f.write("Important Note:\n")
+        f.write("  All agreement calculations are performed only on items where personas\n")
+        f.write("  disagree on the 'is_hate_speech' prediction. Items with unanimous\n")
+        f.write("  agreement across all personas are excluded from the analysis.\n")
     
     print(f"Comprehensive statistical report saved to {output_path}")
 
@@ -349,7 +396,7 @@ def compute_position_statistics(df, positions):
     descriptive_stats = []
     
     print("\n" + "="*50)
-    print("STATISTICAL ANALYSIS")
+    print("STATISTICAL ANALYSIS (Disagreement Items Only)")
     print("="*50)
     
     # Identify only the numeric labels for statistical analysis
@@ -414,16 +461,20 @@ def compute_position_statistics(df, positions):
     return descriptive_stats, test_results
 
 
-def precompute_data_structures(df, positions):
-    """Pre-compute all necessary data structures for faster agreement computation"""
+def precompute_data_structures(df, positions, disagreement_items):
+    """Pre-compute all necessary data structures for faster agreement computation, filtered by disagreement items"""
     labels = list(df.columns[4:])
+    
+    # Filter dataframe to only include disagreement items
+    df_filtered = df[df['item_id'].isin(disagreement_items)]
+    print(f"Filtered dataset size for agreement computation: {len(df_filtered)} rows (from {len(df)} total)")
     
     # Group data by position and persona for O(1) lookup
     position_data = {}
     persona_predictions = {}
     
     for pos in positions:
-        pos_df = df[df["persona_pos"] == pos]
+        pos_df = df_filtered[df_filtered["persona_pos"] == pos]
         position_data[pos] = {
             'df': pos_df,
             'personas': pos_df["persona_id"].unique() if not pos_df.empty else []
@@ -748,7 +799,7 @@ def main():
         is_harmful_label = first_result_labels[0]
 
         # Define output path for comprehensive report, unique for each input file
-        comprehensive_report_path = f"images/agreement/{MODEL_NAME}/comprehensive_report_{TIMESTAMP}.txt"
+        comprehensive_report_path = f"images/agreement/{MODEL_NAME}/comprehensive_report_disagreement_only_no_atk_mtd_{TIMESTAMP}.txt"
 
         predictions = data["results"]
         df = pd.DataFrame(predictions)
@@ -770,20 +821,45 @@ def main():
             other_columns = [col for col in sample_labels.keys() if col != is_harmful_label]
             print(f"Other columns found: {other_columns}")
             
-            for col in other_columns:
-                df[col] = df["predicted_labels"].apply(lambda x: x[col])
+            if other_columns:
+                first_col = other_columns[0]
+                df[first_col] = df["predicted_labels"].apply(lambda x: x[first_col])
+                print(f"Added column: {first_col}")
 
         df = df.drop(["predicted_labels", "true_labels"], axis=1)
 
         positions = get_positions(task_config)
+        
+        # NEW: Identify disagreement items
+        disagreement_items = identify_disagreement_items(df, positions)
+        
+        # Store disagreement statistics for the report
+        disagreement_stats = {
+            'total_items': df['item_id'].nunique(),
+            'disagreement_items': len(disagreement_items),
+            'unanimous_items': df['item_id'].nunique() - len(disagreement_items),
+            'disagreement_percentage': len(disagreement_items) / df['item_id'].nunique() * 100
+        }
+        
+        # If no disagreement items, skip this file
+        if len(disagreement_items) == 0:
+            print(f"Warning: No disagreement items found for {input_path}. Skipping agreement analysis.")
+            continue
+        
+        # Filter dataframe for statistical analysis (only disagreement items)
+        df_disagreement = df[df['item_id'].isin(disagreement_items)]
+        
         matrix_size = len(positions)
         
-        descriptive_stats, test_results = compute_position_statistics(df, positions)
+        # Compute position statistics on disagreement items only
+        descriptive_stats, test_results = compute_position_statistics(df_disagreement, positions)
         
         kappa_matrix = np.zeros((matrix_size, matrix_size))
         ac1_matrix = np.zeros((matrix_size, matrix_size))
         raw_agreement_matrix = np.zeros((matrix_size, matrix_size))
-        labels, position_data, persona_predictions = precompute_data_structures(df, positions)
+        
+        # Pre-compute data structures with disagreement items only
+        labels, position_data, persona_predictions = precompute_data_structures(df, positions, disagreement_items)
 
         tasks = []
         for i, pos1 in enumerate(positions):
@@ -812,7 +888,15 @@ def main():
         
         print(f"\n" + "="*65)
         print(f"RESULTS FOR: {input_path}")
-        print("AGREEMENT SUMMARY STATISTICS")
+        print("DISAGREEMENT FILTERING RESULTS")
+        print("="*65)
+        print(f"Total items: {disagreement_stats['total_items']}")
+        print(f"Items with disagreement: {disagreement_stats['disagreement_items']}")
+        print(f"Items with unanimous agreement: {disagreement_stats['unanimous_items']}")
+        print(f"Percentage with disagreement: {disagreement_stats['disagreement_percentage']:.2f}%")
+        
+        print(f"\n" + "="*65)
+        print("AGREEMENT SUMMARY STATISTICS (Disagreement Items Only)")
         print("="*65)
         print(f"Intra-position agreement (n={agreement_summary['intra_count']}):")
         print(f"  Raw Agreement: {agreement_summary['intra_raw_mean']:.4f} ± {agreement_summary['intra_raw_std']:.4f}")
@@ -829,7 +913,7 @@ def main():
 
         if agreement_summary.get('comparison_tests'):
             print("\n" + "="*65)
-            print("INTRA- VS. INTER-POSITION AGREEMENT COMPARISON")
+            print("INTRA- VS. INTER-POSITION AGREEMENT COMPARISON (Disagreement Items Only)")
             print("="*65)
             for test in agreement_summary['comparison_tests']:
                 print(f"{test['label']}:")
@@ -846,7 +930,7 @@ def main():
                 perfect_agreement_counts[pos1] += count * 0.5
                 perfect_agreement_counts[pos2] += count * 0.5
 
-        print(f"\nPerfect Agreement Counts by Position:")
+        print(f"\nPerfect Agreement Counts by Position (Disagreement Items Only):")
         print("-" * 65)
         for pos in positions:
             print(f"{pos}: {perfect_agreement_counts[pos]} exact matches")
@@ -859,7 +943,7 @@ def main():
         output_dir = os.path.dirname(comprehensive_report_path)
         os.makedirs(output_dir, exist_ok=True)
 
-        save_comprehensive_report(kappa_df, ac1_df, raw_agreement_df, descriptive_stats, test_results, positions, comprehensive_report_path, agreement_summary)
+        save_comprehensive_report(kappa_df, ac1_df, raw_agreement_df, descriptive_stats, test_results, positions, comprehensive_report_path, agreement_summary, disagreement_stats)
     
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 import json
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 import numpy as np
 import seaborn as sns
 from matplotlib import pyplot as plt
@@ -8,29 +8,55 @@ from pathlib import Path
 from sklearn.metrics import classification_report
 import logging
 import yaml
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
 
+import json
+import pandas as pd
+from pathlib import Path
+from typing import List, Dict, Any, Optional
+
 # def save_results(
 #     results: List[Dict[str, Any]],
-#     metadata: Dict[str, Any] = None,
-#     output_path: str = "../results",
+#     metrics: Dict[str, Dict[str, float]],
+#     output_path: str,
+#     metadata: Optional[Dict[str, Any]] = None,
 # ) -> None:
-#     """Save prediction results to a JSON file with timestamp"""
-#     os.makedirs(output_path, exist_ok=True)
-#     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-#     output_file = os.path.join(output_path, f"predictions_{timestamp}.json")
+#     # --- 1. Define output paths ---
+#     base_path = Path(output_path)
+#     # The main results will be stored in a Parquet file
+#     parquet_path = base_path.with_suffix('.pqt')
+#     # The metadata and overall metrics will be in a corresponding JSON file
+#     metadata_json_path = base_path.parent / f"{base_path.stem}_metadata.json"
 
-#     output_data = {
-#         "metadata": {"timestamp": timestamp, **(metadata or {})},
-#         "predictions": results,
-#     }
+#     # Create the parent directory if it doesn't exist
+#     base_path.parent.mkdir(parents=True, exist_ok=True)
 
-#     with open(output_file, "w") as f:
-#         json.dump(output_data, f, indent=2)
+#     # --- 2. Process and save the tabular results to Parquet ---
+#     if results:
+#         print(f"Saving {len(results)} records to Parquet file: {parquet_path}")
+#         # Use pandas.json_normalize to flatten the nested dictionaries
+#         # (e.g., 'true_labels': {'is_hate_speech': ...}) into columns
+#         # like 'true_labels_is_hate_speech'.
+#         df = pd.json_normalize(results, sep='_')
+#         df.to_parquet(parquet_path, index=False)
+#     else:
+#         print("Warning: 'results' list is empty. No Parquet file will be created.")
 
-#     print(f"\nResults saved to: {output_file}")
+#     # --- 3. Process and save the metadata and metrics to JSON ---ù
+#     if metadata:
+#         print(f"Saving metrics and metadata to JSON file: {metadata_json_path}")
+#         run_info = {
+#             "metrics": metrics,
+#             "metadata": metadata or {},
+#         }
+
+#         with open(metadata_json_path, "w") as f:
+#             json.dump(run_info, f, indent=2)
+
+#     print("Save complete.")
 
 
 def save_results(
@@ -62,6 +88,70 @@ def save_results(
     with open(output_path, "w") as f:
         json.dump(output_data, f, indent=2)
 
+
+
+
+def read_results(
+    results_path: str,
+) -> Tuple[Dict[str, Any], Dict[str, Any], pd.DataFrame]:
+    path = Path(results_path)
+
+    if not path.exists():
+        raise FileNotFoundError(f"The specified path does not exist: {results_path}")
+
+    # --- Case 1: New format (Parquet + JSON) ---
+    if path.suffix in [".pqt", ".parquet"]:
+        print(f"Detected new format. Reading Parquet file: {path}")
+
+        # Infer the metadata JSON path from the Parquet file path
+        # e.g., 'my_run.pqt' -> 'my_run_metadata.json'
+        metadata_json_path = path.parent / f"{path.stem}_metadata.json"
+
+        if not metadata_json_path.exists():
+            raise FileNotFoundError(
+                f"Could not find the corresponding metadata file. "
+                f"Expected at: {metadata_json_path}"
+            )
+
+        # Read the tabular data from the Parquet file
+        results_df = pd.read_parquet(path)
+
+        # Read the metadata from the JSON file
+        with open(metadata_json_path, "r") as f:
+            run_info = json.load(f)
+
+        metadata = run_info.get("metadata", {})
+        task_config = metadata.get("task_config", {})
+        model_config = metadata.get("model_config", {})
+
+    # --- Case 2: Old format (single large JSON) ---
+    elif path.suffix == ".json":
+        print(f"Detected old format. Reading single JSON file: {path}")
+
+        with open(path, "r") as f:
+            data = json.load(f)
+
+        # Extract configs from metadata
+        metadata = data.get("metadata", {})
+        task_config = metadata.get("task_config", {})
+        model_config = metadata.get("model_config", {})
+
+        # Normalize the 'results' list into a DataFrame
+        results_list = data.get("results", [])
+        if results_list:
+            # Flatten the nested structure into columns (e.g., true_labels_is_hate_speech)
+            results_df = pd.json_normalize(results_list, sep='_')
+        else:
+            results_df = pd.DataFrame() # Return empty DataFrame if no results
+
+    # --- Case 3: Unsupported format ---
+    else:
+        raise ValueError(
+            f"Unsupported file format: '{path.suffix}'. "
+            "Please provide a path to a '.json', '.pqt', or '.parquet' file."
+        )
+
+    return task_config, model_config, results_df
 
 class ClassificationEvaluator:
     """Handles evaluation and metrics calculation."""
@@ -260,3 +350,5 @@ def get_all_model_names(config_path: str = "models_config.yaml") -> List[str]:
 def clean_leading_trailing_newline(s: str) -> str:
     """Remove leading and trailing newlines from a string."""
     return s.strip("\n") if isinstance(s, str) else s
+
+

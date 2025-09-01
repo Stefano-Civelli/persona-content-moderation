@@ -172,6 +172,11 @@ def main():
     # Find out which bunya node the code is running on
     result = subprocess.run(["hostname"], capture_output=True, text=True, check=True)
     print(result.stdout.strip())
+
+    def none_or_int(value):
+        if value == "None":
+            return None
+        return int(value)
     
     parser = argparse.ArgumentParser(description="Run content classification pipeline")
     parser.add_argument("--task_type", type=str, default="vision", help="Type of task")
@@ -179,17 +184,17 @@ def main():
         "--model",
         type=str,
         default="Qwen/Qwen2.5-VL-7B-Instruct",
-        help="Model name/path",
+        help="Model name/path", 
     )
     parser.add_argument(
         "--prompt_version",
         type=str,
-        default="v1",  # v1
+        default="v1",  # v1, nopersona
     )
     parser.add_argument(
         "--extreme_personas_type",
         type=str,
-        default="extreme_pos_corners_100_centered",  # extreme_pos_left_right
+        default="extreme_pos_corners_100",  # extreme_pos_left_right, extreme_pos_corners_100_centered
     )
     parser.add_argument(
         "--dataset_name",
@@ -198,7 +203,7 @@ def main():
     )
     parser.add_argument(
         "--max_samples",
-        type=int,
+        type=none_or_int,
         default=None,
     )
     parser.add_argument(
@@ -227,11 +232,17 @@ def main():
     ]["template"]
 
     MODEL = args.model
-    task_config["extreme_pos_path"] = (
-        task_config["extreme_pos_path"]
-        .replace("[MODEL_NAME]", MODEL.split("/")[-1])
-        .replace("[TYPE]", args.extreme_personas_type)
-    )
+
+    
+    extreme_pos_personas_path = None
+    if args.extreme_personas_type is not None:
+        extreme_pos_personas_path = (
+            task_config["extreme_pos_path"]
+            .replace("[MODEL_NAME]", MODEL.split("/")[-1])
+            .replace("[TYPE]", args.extreme_personas_type)
+        )
+        task_config["extreme_pos_path"] = extreme_pos_personas_path
+        
     task_config["output_path"] = (
         task_config["output_path"]
         .replace("[MODEL_NAME]", MODEL.split("/")[-1])
@@ -253,7 +264,7 @@ def main():
             data_path=task_config["data_path_facebook"],
             labels_relative_location=task_config["labels_relative_location_facebook"],
             max_samples=args.max_samples,
-            extreme_pos_personas_path=task_config["extreme_pos_path"],
+            extreme_pos_personas_path=extreme_pos_personas_path,
             prompt_template=prompt_template,
         )
         json_schema_class = HatefulContentClassification
@@ -263,7 +274,7 @@ def main():
             data_path=task_config["data_path_multioff"],
             labels_relative_location=task_config["labels_relative_location_multioff"],
             max_samples=args.max_samples,
-            extreme_pos_personas_path=task_config["extreme_pos_path"],
+            extreme_pos_personas_path=extreme_pos_personas_path,
             prompt_template=prompt_template,
         )
         json_schema_class = BinaryContentClassification
@@ -333,6 +344,7 @@ def main():
         "timestamp": pd.Timestamp.now().isoformat(),
         "model_class": model.__class__.__name__,
         "dataset_class": dataset.__class__.__name__,
+        "baseline_mode": extreme_pos_personas_path is None,
     }
 
     final_results_path = os.path.join(task_config["output_path"], "final_results.json")

@@ -29,8 +29,6 @@ def load_predictions(file_path):
 def analyze_persona_bias(df, output_dir="images/subdata"):
     """Analyze if personas from different positions show bias in detecting harmful content"""
     
-    # Note: Directory creation is handled in the main execution block
-    
     # Basic statistics
     print("\n" + "="*60)
     print("DATASET OVERVIEW")
@@ -40,65 +38,93 @@ def analyze_persona_bias(df, output_dir="images/subdata"):
     print(f"Unique personas: {df['persona_id'].nunique()}")
     
     # Check available positions
-    available_positions = sorted(df['persona_pos'].unique()) # Sorted for consistent order
+    available_positions = sorted(df['persona_pos'].unique())
     print(f"Available persona positions: {list(available_positions)}")
-    
-    # Check available target categories
-    available_targets = df['true_labels'].apply(lambda x: x.get('target_category')).unique()
-    user_defined_targets = ['liberals', 'communists', 'democrats', 'left-wingers', 'right-wingers', 'republicans', 'conservatives']
-    assert set(user_defined_targets) == set(available_targets), "Mismatch in user-defined targets and available targets in the dataset."
-    available_targets = [t for t in available_targets if t is not None]
-    print(f"Available target categories: {available_targets}")
-    targets = user_defined_targets
     
     # Extract relevant columns
     df_clean = df.copy()
-    df_clean['true_is_hate'] = df_clean['true_labels'].apply(lambda x: x.get('is_hate_speech'))
-    df_clean['pred_is_hate'] = df_clean['predicted_labels'].apply(lambda x: x.get('is_hate_speech'))
-    df_clean['target_category'] = df_clean['true_labels'].apply(lambda x: x.get('target_category'))
+    df_clean['true_is_hate'] = df_clean['true_labels'].apply(lambda x: x.get('is_hate_speech') if isinstance(x, dict) else None)
+    df_clean['pred_is_hate'] = df_clean['predicted_labels'].apply(lambda x: x.get('is_hate_speech') if isinstance(x, dict) else None)
+    df_clean['target_category'] = df_clean['true_labels'].apply(lambda x: x.get('target_category') if isinstance(x, dict) else None)
     
-    # Filter only hate speech samples (true positives)
-    hate_speech_df = df_clean[df_clean['true_is_hate'] == True].copy()
+    # Automatically detect available target categories (excluding None values)
+    available_targets = [t for t in df_clean['target_category'].unique() if t is not None]
+    available_targets = sorted(available_targets)  # Sort for consistent ordering
+    print(f"Available target categories: {available_targets}")
     
-    # This assertion assumes the input file only contains hate speech samples.
-    # If the file could contain non-hate-speech, this logic would need to be revisited.
-    assert len(hate_speech_df) == len(df_clean), "Mismatch in hate speech samples count. The script assumes all samples have 'true_is_hate: true'."
+    if not available_targets:
+        print("WARNING: No target categories found in the data!")
+        return None
     
-    print(f"\nHate speech samples: {len(hate_speech_df)}")
-    print(f"Non-hate speech samples: {len(df_clean[df_clean['true_is_hate'] == False])}")
+    # Count samples by true label status
+    true_hate_count = df_clean['true_is_hate'].sum() if df_clean['true_is_hate'].notna().any() else 0
+    true_non_hate_count = (df_clean['true_is_hate'] == False).sum() if df_clean['true_is_hate'].notna().any() else 0
+    missing_true_labels = df_clean['true_is_hate'].isna().sum()
+    
+    print(f"\nTrue hate speech samples: {true_hate_count}")
+    print(f"True non-hate speech samples: {true_non_hate_count}")
+    if missing_true_labels > 0:
+        print(f"Samples with missing true labels: {missing_true_labels}")
+    
+    # Count predicted labels
+    pred_hate_count = df_clean['pred_is_hate'].sum() if df_clean['pred_is_hate'].notna().any() else 0
+    pred_non_hate_count = (df_clean['pred_is_hate'] == False).sum() if df_clean['pred_is_hate'].notna().any() else 0
+    missing_pred_labels = df_clean['pred_is_hate'].isna().sum()
+    
+    print(f"Predicted as hate speech: {pred_hate_count}")
+    print(f"Predicted as non-hate speech: {pred_non_hate_count}")
+    if missing_pred_labels > 0:
+        print(f"Samples with missing predictions: {missing_pred_labels}")
+    
+    # Filter out samples with missing predictions
+    #df_analysis = df_clean[df_clean['pred_is_hate'].notna()].copy()
+
+    # Filter out samples with missing predictions AND only keep true hate speech samples
+    df_analysis = df_clean[(df_clean['pred_is_hate'].notna()) & (df_clean['true_is_hate'] == True)].copy()
+    print(f"\nSamples available for analysis: {len(df_analysis)}")
+    
+    if len(df_analysis) == 0:
+        print("ERROR: No samples with valid predictions found!")
+        return None
     
     # Analysis 1: Overall detection rates by position
     print("\n" + "="*60)
     print("OVERALL DETECTION RATES BY POSITION")
     print("="*60)
+    print("(Detection rate = proportion of samples flagged as harmful)")
     
     detection_rates = {}
     for pos in available_positions:
-        pos_data = hate_speech_df[hate_speech_df['persona_pos'] == pos]
+        pos_data = df_analysis[df_analysis['persona_pos'] == pos]
         if len(pos_data) > 0:
             detection_rate = pos_data['pred_is_hate'].mean()
             detection_rates[pos] = detection_rate
             print(f"{pos}: {detection_rate:.3f} ({pos_data['pred_is_hate'].sum()}/{len(pos_data)})")
     
     # Visualize overall detection rates
-    plt.figure(figsize=(10, 6))
-    positions = list(detection_rates.keys())
-    rates = list(detection_rates.values())
-    
-    bars = plt.bar(positions, rates, color=['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4'])
-    plt.title('Hate Speech Detection Rates by Persona Position', fontsize=14, fontweight='bold')
-    plt.xlabel('Persona Position', fontsize=12)
-    plt.ylabel('Detection Rate (Recall)', fontsize=12)
-    plt.ylim(0, 1)
-    
-    # Add value labels on bars
-    for bar, rate in zip(bars, rates):
-        plt.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01, 
-                f'{rate:.3f}', ha='center', va='bottom', fontweight='bold')
-    
-    plt.tight_layout()
-    plt.savefig(f"{output_dir}/overall_detection_rates.png", dpi=300, bbox_inches='tight')
-    plt.close()
+    if detection_rates:
+        plt.figure(figsize=(10, 6))
+        positions = list(detection_rates.keys())
+        rates = list(detection_rates.values())
+        
+        # Use a color palette that works for any number of positions
+        colors = plt.cm.Set3(np.linspace(0, 1, len(positions)))
+        
+        bars = plt.bar(positions, rates, color=colors)
+        plt.title('Harmful Content Detection Rates by Persona Position', fontsize=14, fontweight='bold')
+        plt.xlabel('Persona Position', fontsize=12)
+        plt.ylabel('Detection Rate (Proportion Flagged as Harmful)', fontsize=12)
+        plt.ylim(0, 1)
+        
+        # Add value labels on bars
+        for bar, rate in zip(bars, rates):
+            plt.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01, 
+                    f'{rate:.3f}', ha='center', va='bottom', fontweight='bold')
+        
+        plt.xticks(rotation=45, ha='right')
+        plt.tight_layout()
+        plt.savefig(f"{output_dir}/overall_detection_rates.png", dpi=300, bbox_inches='tight')
+        plt.close()
     
     # Analysis 2: Detection rates by target category and position
     print("\n" + "="*60)
@@ -107,9 +133,9 @@ def analyze_persona_bias(df, output_dir="images/subdata"):
     
     category_position_stats = defaultdict(lambda: defaultdict(dict))
     
-    for target in targets:
+    for target in available_targets:
         print(f"\n--- Target Category: {target} ---")
-        target_data = hate_speech_df[hate_speech_df['target_category'] == target]
+        target_data = df_analysis[df_analysis['target_category'] == target]
         
         if len(target_data) == 0:
             print(f"No data for target category: {target}")
@@ -134,106 +160,41 @@ def analyze_persona_bias(df, output_dir="images/subdata"):
         category_position_stats[target] = category_stats
     
     # Create heatmap of detection rates
-    heatmap_data = []
-    for target in targets:
-        row = []
-        for pos in available_positions:
-            if pos in category_position_stats[target]:
-                row.append(category_position_stats[target][pos]['rate'])
-            else:
-                row.append(np.nan) # Use NaN for missing data for better visualization
-        heatmap_data.append(row)
-    
-    plt.figure(figsize=(12, 8))
-    heatmap_df = pd.DataFrame(heatmap_data, index=targets, columns=available_positions)
-    sns.heatmap(heatmap_df, annot=True, cmap='YlOrBr', center=0.5, 
-                fmt='.3f', cbar_kws={'label': 'Detection Rate'})
-    plt.title('Hate Speech Detection Rates by Target Category and Persona Position', 
-              fontsize=14, fontweight='bold')
-    plt.xlabel('Persona Position', fontsize=12)
-    plt.ylabel('Target Category', fontsize=12)
-    plt.tight_layout()
-    plt.savefig(f"{output_dir}/detection_heatmap.png", dpi=300, bbox_inches='tight')
-    plt.close()
-
-    # <<< START OF MODIFIED SECTION >>>
-    # New analysis section for correctly calculated Overall (Pooled) statistics
-    print("\n" + "="*60)
-    print("OVERALL POOLED STATISTICS (ACROSS ALL CATEGORIES)")
-    print("="*60)
-    
-    # 1. Sum raw detected and total counts across all categories from the populated dictionary
-    overall_detected = defaultdict(int)
-    overall_total = defaultdict(int)
-    
-    for target in category_position_stats:
-        for pos, stats in category_position_stats[target].items():
-            overall_detected[pos] += stats['detected']
-            overall_total[pos] += stats['total']
-            
-    # 2. Calculate overall detection rate using these aggregate totals
-    print("Overall Detection Rates (from aggregated counts):")
-    for pos in sorted(overall_total.keys()): # Sort for consistent output
-        if overall_total[pos] > 0:
-            rate = overall_detected[pos] / overall_total[pos]
-            print(f"  {pos}: {rate:.3f} ({overall_detected[pos]}/{overall_total[pos]})")
-        else:
-            print(f"  {pos}: No data")
-            
-    # 3. Create a single, pooled 2x2 contingency table for 'left' vs 'right' personas
-    if 'leftmost' in overall_total and 'rightmost' in overall_total:
-        print("\nOverall Odds Ratio Analysis ('leftmost' vs 'right'):")
+    if available_targets and available_positions:
+        heatmap_data = []
+        for target in available_targets:
+            row = []
+            for pos in available_positions:
+                if pos in category_position_stats[target]:
+                    row.append(category_position_stats[target][pos]['rate'])
+                else:
+                    row.append(np.nan)
+            heatmap_data.append(row)
         
-        # Aggregate detected and not-detected counts
-        left_detected = overall_detected['leftmost']
-        left_not_detected = overall_total['leftmost'] - left_detected
-        
-        right_detected = overall_detected['rightmost']
-        right_not_detected = overall_total['rightmost'] - right_detected
-        
-        # The single pooled 2x2 table
-        pooled_table = np.array([
-            [left_detected, left_not_detected],   # Row for 'left' persona
-            [right_detected, right_not_detected]    # Row for 'right' persona
-        ])
-        
-        print("  Pooled Contingency Table:")
-        print("                 Detected   Not Detected")
-        print(f"  left persona:   {pooled_table[0,0]:<10} {pooled_table[0,1]:<10}")
-        print(f"  right persona:  {pooled_table[1,0]:<10} {pooled_table[1,1]:<10}")
-
-        # 4. Calculate the final, overall Odds Ratio (OR) from this single pooled table
-        try:
-            # Fisher's exact test is suitable for 2x2 tables and returns the odds ratio
-            odds_ratio, p_value = fisher_exact(pooled_table)
-            
-            # 5. Print these correct overall values
-            print(f"\n  Overall Odds Ratio (left/right): {odds_ratio:.4f}")
-            print(f"  P-value (Fisher's exact test): {p_value:.4f}")
-            
-            if p_value < 0.05:
-                print("  Interpretation: The difference in detection odds between 'left' and 'right' personas is statistically significant.")
-            else:
-                print("  Interpretation: The difference in detection odds is not statistically significant.")
-
-        except ValueError:
-            print("\n  Could not calculate Odds Ratio. This might happen if a row or column in the contingency table sums to zero.")
-            
-    else:
-        print("\nCould not perform Overall Odds Ratio analysis: Data for both 'left' and 'right' personas is required.")
-    # <<< END OF MODIFIED SECTION >>>
+        plt.figure(figsize=(max(12, len(available_positions) * 2), max(8, len(available_targets) * 0.8)))
+        heatmap_df = pd.DataFrame(heatmap_data, index=available_targets, columns=available_positions)
+        sns.heatmap(heatmap_df, annot=True, cmap='YlOrRd', center=0.5, 
+                    fmt='.3f', cbar_kws={'label': 'Detection Rate'})
+        plt.title('Harmful Content Detection Rates by Target Category and Persona Position', 
+                  fontsize=14, fontweight='bold')
+        plt.xlabel('Persona Position', fontsize=12)
+        plt.ylabel('Target Category', fontsize=12)
+        plt.xticks(rotation=45, ha='right')
+        plt.yticks(rotation=0)
+        plt.tight_layout()
+        plt.savefig(f"{output_dir}/detection_heatmap.png", dpi=300, bbox_inches='tight')
+        plt.close()
     
     # Analysis 3: Statistical significance tests
     print("\n" + "="*60)
     print("STATISTICAL SIGNIFICANCE TESTS")
     print("="*60)
     
-    # Test for each target category
     significant_results = []
     
-    for target in targets:
+    for target in available_targets:
         print(f"\n--- Statistical Tests for Target: {target} ---")
-        target_data = hate_speech_df[hate_speech_df['target_category'] == target]
+        target_data = df_analysis[df_analysis['target_category'] == target]
         
         if len(target_data) < 10:
             print(f"Insufficient data for statistical testing (n={len(target_data)})")
@@ -255,28 +216,29 @@ def analyze_persona_bias(df, output_dir="images/subdata"):
             contingency_table = np.array(contingency_data)
             
             # Chi-square test
-            chi2, p_value, dof, expected = chi2_contingency(contingency_table)
-            print(f"  Overall Chi-square test: χ² = {chi2:.4f}, p = {p_value:.4f}")
+            try:
+                chi2, p_value, dof, expected = chi2_contingency(contingency_table)
+                print(f"  Overall Chi-square test: χ² = {chi2:.4f}, p = {p_value:.4f}")
+                
+                if p_value < 0.05:
+                    print(f"  *** SIGNIFICANT OVERALL DIFFERENCE FOUND (p < 0.05) ***")
+                    significant_results.append({
+                        'target': target,
+                        'test': 'chi-square',
+                        'statistic': chi2,
+                        'p_value': p_value,
+                        'positions': position_labels
+                    })
+                else:
+                    print(f"  No significant difference found")
+            except ValueError as e:
+                print(f"  Unable to perform Chi-square test: {e}")
+                continue
             
-            if p_value < 0.05:
-                print(f"  *** SIGNIFICANT OVERALL DIFFERENCE FOUND (p < 0.05) ***")
-                significant_results.append({
-                    'target': target,
-                    'test': 'chi-square',
-                    'statistic': chi2,
-                    'p_value': p_value,
-                    'positions': position_labels
-                })
-            else:
-                print(f"  No significant difference found")
-            
-            # --- START OF BONFERRONI CORRECTION IMPLEMENTATION ---
+            # Pairwise comparisons with Bonferroni correction
             print(f"\n  Pairwise comparisons (Fisher's exact test):")
             
-            # Create mapping from position name to its index in the contingency table
             pos_to_idx = {pos: i for i, pos in enumerate(position_labels)}
-            
-            # Get all unique pairs for comparison
             pairwise_comparisons = list(combinations(position_labels, 2))
             num_comparisons = len(pairwise_comparisons)
             
@@ -293,7 +255,6 @@ def analyze_persona_bias(df, output_dir="images/subdata"):
                     try:
                         odds_ratio, p_fisher = fisher_exact(table_2x2)
                         
-                        # Compare p-value with the corrected alpha
                         if p_fisher < bonferroni_alpha:
                             significance_marker = f"*** SIGNIFICANT (p < {bonferroni_alpha:.4f}) ***"
                             significant_results.append({
@@ -301,7 +262,7 @@ def analyze_persona_bias(df, output_dir="images/subdata"):
                                 'test': 'fisher_exact',
                                 'comparison': f"{pos1} vs {pos2}",
                                 'odds_ratio': odds_ratio, 
-				                'p_value': p_fisher,
+                                'p_value': p_fisher,
                                 'bonferroni_alpha': bonferroni_alpha
                             })
                         else:
@@ -309,9 +270,8 @@ def analyze_persona_bias(df, output_dir="images/subdata"):
                             
                         print(f"      {pos1} vs {pos2}: OR = {odds_ratio:.3f}, p = {p_fisher:.4f} {significance_marker}")
 
-                    except ValueError:
-                        print(f"      {pos1} vs {pos2}: Unable to compute Fisher's exact test (likely due to zero counts).")
-            # --- END OF BONFERRONI CORRECTION IMPLEMENTATION ---
+                    except ValueError as e:
+                        print(f"      {pos1} vs {pos2}: Unable to compute Fisher's exact test: {e}")
     
     # Create visualization of significant results
     if significant_results:
@@ -319,7 +279,6 @@ def analyze_persona_bias(df, output_dir="images/subdata"):
         print("SUMMARY OF SIGNIFICANT RESULTS")
         print("="*60)
         
-        # Group by target category
         target_sig_results = defaultdict(list)
         for result in significant_results:
             target_sig_results[result['target']].append(result)
@@ -353,7 +312,8 @@ def analyze_persona_bias(df, output_dir="images/subdata"):
             # Add lines for Bonferroni thresholds if they exist
             bonf_alphas = {r['bonferroni_alpha'] for r in results if 'bonferroni_alpha' in r}
             for i, alpha in enumerate(bonf_alphas):
-                ax.axhline(y=alpha, color='purple', linestyle=':', alpha=0.8, label=f'Bonferroni α ≈ {alpha:.3f}' if i==0 else "")
+                ax.axhline(y=alpha, color='purple', linestyle=':', alpha=0.8, 
+                          label=f'Bonferroni α ≈ {alpha:.3f}' if i==0 else "")
 
             ax.set_title(f'Significant P-Values for Target: {target}', fontweight='bold')
             ax.set_xlabel('Comparison')
@@ -389,8 +349,8 @@ def analyze_persona_bias(df, output_dir="images/subdata"):
     print("="*60)
     
     effect_sizes = []
-    for target in targets:
-        target_data = hate_speech_df[hate_speech_df['target_category'] == target]
+    for target in available_targets:
+        target_data = df_analysis[df_analysis['target_category'] == target]
         
         if len(target_data) < 10:
             continue
@@ -432,8 +392,6 @@ def analyze_persona_bias(df, output_dir="images/subdata"):
     # Create effect size visualization
     if effect_sizes:
         df_effects = pd.DataFrame(effect_sizes)
-        
-        # Create separate plots for each target
         targets_with_effects = df_effects['target'].unique()
         
         fig, axes = plt.subplots(len(targets_with_effects), 1, 
@@ -497,8 +455,19 @@ def analyze_persona_bias(df, output_dir="images/subdata"):
 
 if __name__ == "__main__":
     # Replace with your actual file path
-    file_path = "data/results/text_classification/Qwen2.5-32B-Instruct/20250713_103728/final_results.json"
-    timestamp = file_path.split("/")[-2]
+    file_path = "data/results/text_classification/Qwen2.5-32B-Instruct/20250722_125943/final_results.json"
+    file_path = "data/results/text_classification/Llama-3.1-70B-Instruct/20250724_140425/final_results.json"
+    
+    if not os.path.exists(file_path):
+        print(f"Error: File '{file_path}' not found!")
+        sys.exit(1)
+    
+    # Extract timestamp from file path or use current timestamp
+    try:
+        timestamp = file_path.split("/")[-2]
+    except:
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
     # Define and create output directory
     output_dir = f"images/subdata/{timestamp}"

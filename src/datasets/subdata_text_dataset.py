@@ -56,7 +56,6 @@ class SubdataTextDataset(BaseDataset):
         **additional_params: Any,
     ):
         self.tokenizer = tokenizer
-        self.prompts = {}
         self.persona_ids = []
         self.data_df = None
         self.text_field = text_field
@@ -74,7 +73,11 @@ class SubdataTextDataset(BaseDataset):
 
     def load_dataset(self) -> None:
         """Load text dataset from CSV."""
-        df = pd.read_csv(self.data_path)
+
+        if self.data_path.endswith(".tsv"):
+            df = pd.read_csv(self.data_path, sep="\t")
+        else:
+            df = pd.read_csv(self.data_path)
 
         # if there is no category it means that we are using one of the specific category datasets
         # Likely we are using political_complete.csv

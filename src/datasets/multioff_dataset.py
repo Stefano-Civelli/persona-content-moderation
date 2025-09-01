@@ -23,7 +23,6 @@ class MultiOffMemesDataset(BaseDataset):
     ):
         # The processor is no longer needed here, as vLLM handles it.
         self.labels_relative_location = labels_relative_location
-        self.prompts = {}
         self.persona_ids = []
         self.data_df = None
 
@@ -42,21 +41,24 @@ class MultiOffMemesDataset(BaseDataset):
             Path(self.data_path) / location
             for location in self.labels_relative_location
         ]
-        img_relative_location = "/Labelled Images"
-
+        img_relative_location =  Path(self.data_path.replace("interim", "raw")) / "Labelled Images"
         df = pd.DataFrame()
+        
         for labels_path in labels_paths:
             if labels_path.exists():
                 df = pd.concat([df, pd.read_csv(labels_path)], ignore_index=True)
             else:
                 print(f"Labels file {labels_path} does not exist. Skipping.")
+        # keep only rows where target is "Trump" or "Hillary"
+        df = df[df["target"].isin(["Trump", "Hillary"])]
+        print("Keeping only rows with target 'Trump' or 'Hillary'")
 
         if self.max_samples:
             random.seed(self.seed)
             df = df.sample(n=min(self.max_samples, len(df)), random_state=self.seed)
 
         df["labels"] = df.apply(
-            lambda row: {"is_hate_speech": row["label"] == "offensive"}, axis=1
+            lambda row: {"is_hate_speech": row["label"] == "offensive", "target": row["target"]}, axis=1
         )
 
         # add img_relative_location before the image name in the "image_name" column
@@ -70,48 +72,33 @@ class MultiOffMemesDataset(BaseDataset):
 
     def __getitem__(self, idx: int) -> Tuple[str, Image.Image, Dict, str, str, str]:
 
-        num_images = len(self.items)
+        num_images = self.data_df.shape[0]
         prompt_idx = idx // num_images
         item_idx = idx % num_images
 
-        item = self.items[item_idx]
+        item = self.data_df.iloc[item_idx]
         persona_id = self.persona_ids[prompt_idx]
         unformatted_prompt, persona_pos = self.prompts[persona_id]
 
         # Load image as a PIL object
         image = Image.open(item["image_path"]).convert("RGB")
+        max_size = (1024, 1024)
+        image.thumbnail(max_size, Image.Resampling.LANCZOS)
 
         # Return the raw components. The model class will format them.
         return (
             unformatted_prompt,
             image,
             item["labels"],
-            item["item_id"],
+            str(item["image_name"].replace(".png", "").replace(".jpg", "")),
             persona_id,
             persona_pos,
         )
 
     def __len__(self) -> int:
         """Return total number of items including prompt variations."""
-        if self.prompts:
-            return len(self.items) * len(self.prompts)
-        return len(self.items)
+        return self.data_df.shape[0] * len(self.prompts)
+       
 
     def convert_true_label(self, raw_label):
-        hate_label = raw_label["hate"][0] if raw_label.get("hate") else "not_hateful"
-        pc_label = raw_label["pc"][0] if raw_label.get("pc") else "pc_empty"
-        attack_label = (
-            raw_label["attack"][0] if raw_label.get("attack") else "attack_empty"
-        )
-
-        return {
-            "is_hate_speech": hate_label != "not_hateful",
-            "target_group": (
-                pc_label.replace("pc_", "") if pc_label != "pc_empty" else "none"
-            ),
-            "attack_method": (
-                attack_label.replace("attack_", "")
-                if attack_label != "attack_empty"
-                else "none"
-            ),
-        }
+        return raw_label

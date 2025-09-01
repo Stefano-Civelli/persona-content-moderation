@@ -102,134 +102,48 @@ facebook:
       Now, analyze the image from the persona's perspective and generate the JSON object.
     placeholders:
       - PERSONA
+  nopersona:
+    template: |
+      You are an expert content analyst specializing in identifying hate. Your task is to analyze the provided meme.
 
-hatexplain:
-  v1:
-    template: |
-      Taking on the perspective of [PERSONA], analyze this text in two steps:
+      Based on your analysis, you must generate a single, valid JSON object that adheres to the following schema and logic. Do not output any text other than the JSON object.
 
-      1. First, determine if this text is hate speech, offensive, or normal:
-         Answer with only: HATE_SPEECH, OFFENSIVE, or NORMAL
+      **Analysis Logic:**
+      1.  **Classification:** First, determine if the meme is hate speech. This determines the value of `is_hate_speech`.
+      2.  **Conditional Analysis:**
+          - **If `is_hate_speech` is "true"**: You MUST identify the single, *most prominent* `target_group` and the single, *primary* `attack_method` used.
+          - **If `is_hate_speech` is "false"**: The `target_group` and `attack_method` fields MUST be `null`.
 
-      2. If you answered HATE_SPEECH or OFFENSIVE:
-         Targeted groups affected (TG:) (choose 1): race, religion, gender, sexuality, disability, minority, other, economic, refugee, none
-         Attack methods used (AM:) (choose 1): contempt, mocking, inferiority, slurs, exclusion, dehumanizing, inciting_violence
+      **JSON Schema:**
+      - `is_hate_speech` (string): Must be one of ["true", "false"].
+      - `target_group` (string or null): If hateful, must be one of ["disability", "race", "religion", "nationality", "sex"]. Otherwise, it must be `null`.
+      - `attack_method` (string or null): If hateful, must be one of ["contempt", "mocking", "inferiority", "slurs", "exclusion", "dehumanizing", "inciting_violence"]. Otherwise, it must be `null`.
 
-      When executing this task, think carefully about how a person with the described perspective would interpret the meme.
-    placeholders:
-      - PERSONA
+      **Example 1 (Hateful):**
+      {
+        "is_hate_speech": "true",
+        "target_group": "race",
+        "attack_method": "mocking"
+      }
 
-mmhs150k:
-  v0:
-    template: |
-      The tweet provided is composed of the given image and the following text:
-      [TWEET_TEXT]
-      Taking on the perspective of [PERSONA], analyze this tweet in two steps:
-      1. First, classify if this tweet is harmful or not:
-       Answer with only: HARMFUL or NOT_HARMFUL
-      2. If classification is HARMFUL, provide:
-       TG (choose 1): Racist, Sexist, Homophobe, Religion, OtherHate.
-    placeholders:
-      - TWEET_TEXT
-      - PERSONA
-  v1:
-    template: |
-      The tweet provided is composed of the given image and the following text:
-      [TWEET_TEXT]
-      Taking on the perspective of [PERSONA], analyze this tweet in two steps:
-      1. First, classify if this meme is harmful or not:
-       Answer with only: HARMFUL or NOT_HARMFUL
-      2. If classification is HARMFUL, provide:
-       TG (choose 1): Racist, Sexist, Homophobe, Religion, OtherHate.
-      When executing this task, think carefully about how a person with the described perspective would interpret the tweet.
-    placeholders:
-      - TWEET_TEXT
-      - PERSONA
-  v2:
-    template: |
-      The tweet provided is composed of the given image and the following text:
-      [TWEET_TEXT]
-      Taking on the perspective of [PERSONA], analyze this tweet in two steps:
-      1. First, classify if this meme is harmful or not:
-       Output format: CLASSIFICATION: [HARMFUL or NOT_HARMFUL]
-      2. If classification is HARMFUL, you must also specify the target group:
-       Output format: TARGET_GROUP: [Racist|Sexist|Homophobe|Religion|OtherHate]
-      Your output must follow these formats exactly. If classification is HARMFUL, both lines are required.
-      When executing this task, think carefully about how a person with the described perspective would interpret the tweet.
-    placeholders:
-      - TWEET_TEXT
-      - PERSONA
+      **Example 2 (Not Hateful):**
+      {
+        "is_hate_speech": "false",
+        "target_group": null,
+        "attack_method": null
+      }
 
-facebook_harmful_memes_left_right:
-  leftmost:
-    template: |
-      Analyze this meme taking on the perspective of the following politically left leaning persona:
-      [PERSONA].
-      Analyze this meme in two steps:
-      1. First, classify if this meme is harmful or not:
-       Answer with only: HARMFUL or NOT_HARMFUL
-      2. If you answered HARMFUL:
-       Targeted groups affected (TG:) (choose 1): disability, race, religion, nationality, sex
-       Attack methods used (AM:) (choose 1): contempt, mocking, inferiority, slurs, exclusion, dehumanizing, inciting_violence
-      When executing this task, think carefully about how a person with the described left leaning perspective would interpret the meme.
-    placeholders:
-      - PERSONA
-    political_orientation: left
-  rightmost:
-    template: |
-      Analyze this meme taking on the perspective of the following politically right leaning persona:
-      [PERSONA].
-      Analyze this meme in two steps:
-      1. First, classify if this meme is harmful or not:
-       Answer with only: HARMFUL or NOT_HARMFUL
-      2. If you answered HARMFUL:
-       Targeted groups affected (TG:) (choose 1): disability, race, religion, nationality, sex
-       Attack methods used (AM:) (choose 1): contempt, mocking, inferiority, slurs, exclusion, dehumanizing, inciting_violence
-      When executing this task, think carefully about how a person with the described right leaning perspective would interpret the meme.
-    placeholders:
-      - PERSONA
-    political_orientation: right
+      Now, analyze the image and generate the JSON object.
 
-mmhs150k_left_right:
-  leftmost:
-    template: |
-      The tweet provided is composed of the given image and the following text:
-      [TWEET_TEXT]
-      Taking on the perspective of a left leaning [PERSONA], analyze this tweet in two steps:
-      1. First, classify if this meme is harmful or not:
-       Output format: CLASSIFICATION: [HARMFUL or NOT_HARMFUL]
-      2. If classification is HARMFUL, you must also specify the target group:
-       Output format: TARGET_GROUP: [Racist|Sexist|Homophobe|Religion|OtherHate]
-      Your output must follow these formats exactly. If classification is HARMFUL, both lines are required.
-      When executing this task, think carefully about how a person with the described left leaning perspective would interpret the tweet.
-    placeholders:
-      - TWEET_TEXT
-      - PERSONA
-    political_orientation: left
-  rightmost:
-    template: |
-      The tweet provided is composed of the given image and the following text:
-      [TWEET_TEXT]
-      Taking on the perspective of a right leaning [PERSONA], analyze this tweet in two steps:
-      1. First, classify if this meme is harmful or not:
-       Output format: CLASSIFICATION: [HARMFUL or NOT_HARMFUL]
-      2. If classification is HARMFUL, you must also specify the target group:
-       Output format: TARGET_GROUP: [Racist|Sexist|Homophobe|Religion|OtherHate]
-      Your output must follow these formats exactly. If classification is HARMFUL, both lines are required.
-      When executing this task, think carefully about how a person with the described right leaning perspective would interpret the tweet.
-    placeholders:
-      - TWEET_TEXT
-      - PERSONA
-    political_orientation: right
 
-hate_speech_text:
-  v1:
-    template: |
-      Here is a text that may contain hate speech: [TEXT].
-      Taking on the perspective of the following persona: [PERSONA], generate a JSON output to classify this text saying if it is_hate_speech, the target_category affected and the specific_target being attacked.
-    placeholders:
-      - TEXT
-      - PERSONA
+# hate_speech_text:
+#   v1:
+#     template: |
+#       Here is a text that may contain hate speech: [TEXT].
+#       Taking on the perspective of the following persona: [PERSONA], generate a JSON output to classify this text saying if it is_hate_speech, the target_category affected and the specific_target being attacked.
+#     placeholders:
+#       - TEXT
+#       - PERSONA
 
 yoder:
   v1:
@@ -268,6 +182,39 @@ yoder:
     placeholders:
       - TEXT
       - PERSONA
+  nopersona:
+    template: |
+      You are an expert content analyst specializing in identifying hate speech according to specific guidelines. Your task is to analyze the provided text.
+
+      Based on your analysis, you must generate a single, valid JSON object that adheres to the following schema and logic. Do not output any text other than the JSON object.
+
+      **Analysis Logic:**
+      1.  **Classification:** First, determine if the text is hate speech. This determines the value of `is_hate_speech`.
+      2.  **Conditional Analysis:**
+          - **If `is_hate_speech` is "true"**: You MUST identify the single, primary `target_category` being attacked.
+          - **If `is_hate_speech` is "false"**: The `target_category` field MUST be `null`.
+
+      **JSON Schema:**
+      - `is_hate_speech` (string): Must be one of ["true", "false"].
+      - `target_group` (string or null): If hateful, must be one of ["women", "black", "lgbtq+", "muslims/arabic", "asian", "latino/hispanic", "jews", "white", "men", "christians"]. If not hateful, it must be `null`.
+
+      **Example 1 (Hateful):**
+      {
+        "is_hate_speech": "true",
+        "target_category": "latino/hispanic"
+      }
+
+      **Example 2 (Not Hateful):**
+      {
+        "is_hate_speech": "false",
+        "target_category": "none"
+      }
+
+      Text: [TEXT]
+      
+      Now, analyze the text and generate the JSON object.
+    placeholders:
+      - TEXT
   v2:
     template: |
       Here is a text that may contain hate speech: [TEXT].
@@ -303,6 +250,30 @@ subdata:
       Text: [TEXT]
       
       Now, analyze the text from the persona's perspective and generate the JSON object.
+  nopersona:
+    template: |
+      You are an expert content analyst specializing in identifying hate speech according to specific guidelines. Your task is to analyze the provided text.
+
+      Based on your analysis, you must generate a single, valid JSON object that adheres to the following schema and logic. Do not output any text other than the JSON object.
+
+      **Classification Logic:** Determine if the text is hate speech. This determines the value of `is_hate_speech`.
+
+      **JSON Schema:**
+      - `is_hate_speech` (string): Must be one of ["true", "false"].
+
+      **Example 1 (Hateful):**
+      {
+        "is_hate_speech": "true"
+      }
+
+      **Example 2 (Not Hateful):**
+      {
+        "is_hate_speech": "false"
+      }
+
+      Text: [TEXT]
+      
+      Now, analyze the text and generate the JSON object.
 multioff:
   v1:
     template: |
@@ -330,3 +301,25 @@ multioff:
       Persona: [PERSONA]
       
       Now, analyze the meme from the persona's perspective and generate the JSON object.
+  nopersona:
+    template: |
+      You are an expert content analyst specializing in identifying hate speech according to specific guidelines. Your task is to analyze the provided meme.
+
+      Based on your analysis, you must generate a single, valid JSON object that adheres to the following schema and logic. Do not output any text other than the JSON object.
+
+      **Classification Logic: ** Determine if the meme is hate speech. This determines the value of `is_hate_speech`.
+
+      **JSON Schema:**
+      - `is_hate_speech` (string): Must be one of ["true", "false"].
+
+      **Example 1 (Hateful):**
+      {
+        "is_hate_speech": "true"
+      }
+
+      **Example 2 (Not Hateful):**
+      {
+        "is_hate_speech": "false"
+      }
+
+      Now, analyze the meme and generate the JSON object.
