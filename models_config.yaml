@@ -40,14 +40,6 @@ vision_config:
       enforce_eager: False
       resolution_factor: null # Qwen VL models use min_pixels/max_pixels or exact dimensions
       max_tokens: 200
-    # - name: "openbmb/MiniCPM-o-2_6" # 9B parameters
-    #   vllm_seed: 22
-    #   temperature: 0.0
-    #   max_model_len: 2048
-    #   max_num_seqs: 1000
-    #   enforce_eager: False
-    #   resolution_factor: null # MiniCPM-o uses min_pixels/max_pixels or exact dimensions
-    #   max_tokens: 200
 
 # Text Task Configuration (from your previous example, with adjustments)
 text_config:

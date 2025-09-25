@@ -125,6 +125,7 @@ def create_personas_df(extreme_pos):
 
 
 def generate_prompts(prompt_template, personas_list):
+    """Generate prompts by replacing [PERSONA] in the template with actual persona descriptions."""
     
     prompts = []
 
