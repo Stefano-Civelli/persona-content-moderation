@@ -1,3 +1,7 @@
+"""
+Generates detection rates for Table 7 in the paper.
+"""
+
 import json
 import pandas as pd
 import numpy as np
@@ -497,7 +501,7 @@ def analyze_persona_bias(df, output_dir="images/subdata"):
 
 if __name__ == "__main__":
     # Replace with your actual file path
-    file_path = "data/results/text_classification/Qwen2.5-32B-Instruct/20250713_103728/final_results.json"
+    file_path = "paper_results/Qwen2.5-VL-32B-Instruct/20250712_030201/final_results.json"
     timestamp = file_path.split("/")[-2]
     
     # Define and create output directory

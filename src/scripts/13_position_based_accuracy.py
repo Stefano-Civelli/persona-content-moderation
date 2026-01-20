@@ -1,3 +1,7 @@
+"""
+Generates metrics for Table 3 and Table 4 in the paper
+"""
+
 import json
 import sys
 import argparse
@@ -156,15 +160,15 @@ def main():
     parser = argparse.ArgumentParser(description='Analyze classification results')
     parser.add_argument('json_files', nargs='*', 
                        default=[
-                           "data/results/img_classification/Idefics3-8B-Llama3/20250813_162245.json/final_results.json", # Facebook
-                           "data/results/text_classification/Llama-3.1-8B-Instruct/20250711_112214/final_results.json", # yoder 4-corner
+                           "paper_results/Idefics3-8B-Llama3/20250813_162245/final_results.json", # Facebook
+                           "paper_results/Llama-3.1-8B-Instruct/20250711_112214/final_results.json", # yoder 4-corner
                            #"data/results/text_classification/Llama-3.1-8B-Instruct/20250713_013923/final_results.json", # subdata l-r
-                           "data/results/text_classification/Llama-3.1-70B-Instruct/20250724_140425/final_results.json", # yoder 4-corner
+                           "paper_results/Llama-3.1-70B-Instruct/20250724_140425/final_results.json", # yoder 4-corner
                            #"data/results/text_classification/Llama-3.1-70B-Instruct/20250717_084101/final_results.json", # subdata l-r
-                           "data/results/text_classification/Qwen2.5-32B-Instruct/20250717_215350/final_results.json", # yoder 4-corner
+                           "paper_results/Qwen2.5-32B-Instruct/20250717_215350/final_results.json", # yoder 4-corner
                            #"data/results/text_classification/Qwen2.5-32B-Instruct/20250713_103728/final_results.json", # subdata l-r
-                           "data/results/img_classification/Qwen2.5-VL-7B-Instruct/20250712_012750.json/final_results.json", # Facebook
-                           "data/results/img_classification/Qwen2.5-VL-32B-Instruct/20250712_030201/final_results.json", # Facebook
+                           "paper_results/Qwen2.5-VL-7B-Instruct/20250712_012750/final_results.json", # Facebook
+                           "paper_results/Qwen2.5-VL-32B-Instruct/20250712_030201/final_results.json", # Facebook
                        ],
                        help='Path(s) to JSON results file(s)')
     

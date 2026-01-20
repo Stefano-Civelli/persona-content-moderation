@@ -454,9 +454,8 @@ def analyze_persona_bias(df, output_dir="images/subdata"):
     }
 
 if __name__ == "__main__":
-    # Replace with your actual file path
-    file_path = "data/results/text_classification/Qwen2.5-32B-Instruct/20250722_125943/final_results.json"
-    file_path = "data/results/text_classification/Llama-3.1-70B-Instruct/20250724_140425/final_results.json"
+    file_path = "paper_results/Qwen2.5-32B-Instruct/20250722_125943/final_results.json"
+    file_path = "paper_results/Llama-3.1-70B-Instruct/20250724_140425/final_results.json"
     
     if not os.path.exists(file_path):
         print(f"Error: File '{file_path}' not found!")

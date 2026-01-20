@@ -144,7 +144,7 @@ def process(model: str, n_corner_personas: int, n_left_right_personas: int, use_
     MODEL = model.split("/")[-1]
     compass_file_name = "final_compass"
 
-    df_path = f"../extension-llm-political-personas/results/{MODEL}/base/{compass_file_name}.pqt"
+    df_path = f"results/{MODEL}/base/{compass_file_name}.pqt"
 
     print()
     print("=" * 70)
@@ -184,7 +184,7 @@ def process(model: str, n_corner_personas: int, n_left_right_personas: int, use_
     # Add suffix to filename if using center
     suffix = "_centered" if use_center else ""
     extreme_pos_path = (
-        f"data/results/extreme_pos_personas/{MODEL}/extreme_pos_corners_{n_corner_personas}{suffix}.pkl"
+        f"data/cache/{MODEL}/extreme_pos_corners_{n_corner_personas}{suffix}.pkl"
     )
     os.makedirs(os.path.dirname(extreme_pos_path), exist_ok=True)
     print(f"Saving corner positions to: {extreme_pos_path}")
@@ -196,7 +196,7 @@ def process(model: str, n_corner_personas: int, n_left_right_personas: int, use_
     print()
     print("=" * 70)
     extreme_pos_left_right_path = (
-        f"data/results/extreme_pos_personas/{MODEL}/extreme_pos_left_right_{n_left_right_personas}{suffix}.pkl"
+        f"data/cache/{MODEL}/extreme_pos_left_right_{n_left_right_personas}{suffix}.pkl"
     )
     print(f"Saving left and right positions to: {extreme_pos_left_right_path}")
     with open(extreme_pos_left_right_path, "wb") as f:
@@ -216,11 +216,13 @@ def main():
         "--n_corner_personas",
         type=int,
         default=100,
+        help="number of personas for each corner"
     )
     parser.add_argument(
         "--n_left_right_personas",
         type=int,
         default=200,
+        help="number of personas for each side (left/right)"
     )
     parser.add_argument(
         "--use_center",

@@ -164,7 +164,7 @@ def plot_model(model: str):
     print()
     print("=" * 70)
     print(f"Model: {model}")
-    df_path = f"results/{MODEL}/base/{compass_file_name}.pqt"
+    df_path = f"data/cache/{MODEL}/base/{compass_file_name}.pqt"
     print(f"Reading data from: {df_path}")
     df = pd.read_parquet(df_path)
     print(f"DataFrame shape: {df.shape}")

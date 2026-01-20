@@ -40,7 +40,7 @@ class AttackMethod(str, Enum):
 #     attack_method: AttackMethod
 
 
-# NOTE This seems to be betterat actually getting 
+# NOTE This one with the optionals seems to be better
 class HatefulContentClassification(BaseModel):
     is_hate_speech: isHateSpeech
     target_group: Optional[TargetGroup] = None
